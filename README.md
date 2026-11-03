@@ -11,11 +11,19 @@ open "dist/Lock In.app"
 
 To build and install (or update) the app in `/Applications`, run `./install-app` (a shortcut for `Scripts/install-app.sh`). A running copy is told to quit with `lockin://update`. This pauses an in-progress session with the reason “Updating Lock In”, and the session resumes automatically once the new version opens. A pause you started yourself stays paused. In Hardcore Mode the app refuses to quit, and the script stops without changing the installed app.
 
-Use the packaged app, rather than `swift run`, for browser Automation permission and URL handling. The build script creates an ad-hoc signed app for local development. Distribution to other Macs needs Developer ID signing and notarization. Open `Package.swift` in Xcode to develop.
+Use the packaged app, rather than `swift run`, for browser Automation permission and URL handling. The build script creates an ad-hoc signed app for local development; set `CODESIGN_IDENTITY` to a Developer ID identity to sign it with the Hardened Runtime instead. Open `Package.swift` in Xcode to develop.
 
 ```sh
 swift test
 ```
+
+## Releases
+
+Releases are built by GitHub Actions and published as a Developer ID signed, notarized `.app` zip on the GitHub release.
+
+- `.github/workflows/ci.yml` builds, tests and packages the app on every push and pull request.
+- `.github/workflows/release.yml` uses [release-please](https://github.com/googleapis/release-please). It keeps a release PR open from [conventional commits](https://www.conventionalcommits.org) on `main` (`feat:`, `fix:` and so on). Merging that PR bumps the version in `Resources/Info.plist`, updates `CHANGELOG.md`, tags the release, then builds, signs, notarizes and attaches the app.
+- The release workflow refuses to run until the Apple signing secrets are set. Run `./Scripts/setup-release.ts` once (needs Deno and the `gh` CLI). It checks your Developer ID `.p12` and App Store Connect API key with the same tools CI uses before storing them as repository secrets.
 
 ## Daily work sessions
 
