@@ -1,6 +1,6 @@
 # Lock In
 
-A native SwiftUI macOS focus app based on **Focus 1.15** as the feature reference. Requires macOS 14+, Swift 6 / Xcode. No external packages, server, accounts, or analytics.
+A native SwiftUI macOS focus app. Requires macOS 14+, Swift 6 / Xcode. No external packages, server, accounts, or analytics.
 
 ## Run
 
@@ -64,22 +64,21 @@ Links are saved as URLs only. No Linear, GitHub or Notion account access or API 
 
 Open a supported browser and click **Enable browser blocking**. Lock In explicitly asks macOS for Automation access; if access is already allowed no prompt appears. Permission is managed in **System Settings → Privacy & Security → Automation**. The app scans tabs across all browser windows and redirects matching URLs. It checks permission before scanning, reports exact failures, and does not treat a failed scan as protection. The status line reports failures; permission is never silently assumed.
 
-## What is not yet equivalent to Focus 1
+## Limitations
 
-This is a working first implementation, **not full feature parity**. The reference is `/Applications/Focus.app`, version 1.15, inspected on 2026-10-30. The public website now describes Focus 2, so it is not the source of truth for this app’s scope.
+This is a working first implementation. Current behavior and known gaps:
 
 | Area | Current behavior / remaining work |
 | --- | --- |
 | Website enforcement | Checks the foreground browser tab every 250 ms and sweeps all supported browser windows every two seconds. Browser activation triggers an immediate check. Checks are serialized and scan scripts are reused; actual latency also depends on browser responsiveness. Content may load before redirection. Downloads, Firefox and non-browser traffic are not blocked. |
 | Application enforcement | Hides selected apps repeatedly; does not prevent execution or terminate processes. |
 | Tamper resistance | Normal UI controls honor locked sessions; force-quit or editing local data bypasses them. A privileged, signed helper or system extension needs a separate implementation. |
-| Session workflow | Work-target planning replaces the v1 Pomodoro/open-ended flow. Hardcore still allows earned breaks and justified pauses. |
+| Session workflow | Work-target planning, with no Pomodoro or open-ended sessions. Hardcore still allows earned breaks and justified pauses. |
 | Rules | Domain, subdomain, path-prefix and exact query matching. No arbitrary wildcard/regex patterns or browser-specific rules. |
-| Do Not Disturb | No automatic OS Focus toggle; can be integrated through user-supplied workflow scripts/Shortcuts. |
+| Do Not Disturb | No automatic macOS Focus toggle; can be integrated through user-supplied workflow scripts/Shortcuts. |
 | Block page | One original message; no custom quote collection/editor. The blocked URL is passed as `?url=`. Refreshing the block page returns to that URL: it stays open on a break, and is blocked again during work. |
 | Menu bar | Countdown and popup controls; no custom icon/click-behavior preferences yet. |
-| Automation | `lockin://` URL actions and shell hooks; no AppleScript dictionary or full Focus-compatible command schema. |
-| Import | Does not read or alter your existing Focus preferences, sessions, license, or helper. |
+| Automation | `lockin://` URL actions and shell hooks; no AppleScript dictionary. |
 
 The global shortcut may be unavailable if another app already owns it. macOS must keep Lock In running for enforcement. The packaged build has not been validated across all supported browsers.
 
@@ -94,6 +93,4 @@ Blocking preferences and legacy history are saved to `~/Library/Application Supp
 
 ## Reference
 
-- Local Focus 1.15 bundle metadata and interface resources (feature labels only; no vendor code/assets copied).
-- [Focus 2 announcement](https://heyfocus.com/blog/focus-2-a-big-step-in-getting-things-done/) for distinguishing the later profile-based feature set.
 - [Apple MenuBarExtra documentation](https://developer.apple.com/documentation/swiftui/menubarextra).
