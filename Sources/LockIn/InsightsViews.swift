@@ -84,7 +84,7 @@ struct InsightsView: View {
                         HStack(alignment: .firstTextBaseline) {
                             Text("How \(dayName(day)) unfolded").font(.headline)
                             Spacer()
-                            if pinnedDay != nil { Button("Back to today") { pinnedDay = nil }.buttonStyle(.link).font(.caption) }
+                            if pinnedDay != nil { Button("Back to today") { pinnedDay = nil }.buttonStyle(.pointer(.link)).font(.caption) }
                         }
                         DayTimeline(intervals: intervals, now: store.now)
                     }

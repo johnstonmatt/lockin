@@ -117,7 +117,7 @@ import LockInCore
         let todos = journal.draft.filter(\.hasTitle)
         guard !todos.isEmpty else { showPlanner = true; message = "Add at least one task before starting."; return }
         guard todos.allSatisfy(\.validLink), journal.hours.isFinite, journal.hours > 0, journal.hours <= 24 else {
-            message = "Use a work target between 0 and 24 hours and valid https://linear.app issue links."; return
+            message = "Use a work target between 0 and 24 hours, and full web links (https://…) for tasks."; return
         }
         let log = WorkLog(todos: todos, targetSeconds: journal.hours * 3600, now: Date())
         journal.sessions.append(log)
@@ -155,14 +155,14 @@ import LockInCore
         runHook(hook); saveAll(); return true
     }
     /// Adds a task to the running session. Returns false (with a message) if the title is blank or the link is invalid.
-    @discardableResult func addTask(title: String, linearURL: String = "") -> Bool {
-        editTasks { $0.append(Todo().with(title: title, linearURL: linearURL)); return $0.count - 1 }
+    @discardableResult func addTask(title: String, link: String = "") -> Bool {
+        editTasks { $0.append(Todo().with(title: title, link: link)); return $0.count - 1 }
     }
     /// Renames or relinks a task in the running session. Invalid edits are rejected and leave the task unchanged.
-    @discardableResult func updateTask(id: UUID, title: String, linearURL: String) -> Bool {
+    @discardableResult func updateTask(id: UUID, title: String, link: String) -> Bool {
         editTasks { todos in
             guard let index = todos.firstIndex(where: { $0.id == id }) else { return nil }
-            todos[index] = todos[index].with(title: title, linearURL: linearURL); return index
+            todos[index] = todos[index].with(title: title, link: link); return index
         }
     }
     /// Applies an edit to the running session's tasks; `edit` returns the index of the changed task.
@@ -286,7 +286,7 @@ import LockInCore
         } catch { message = "Could not save session tracking in ~/.lockin: \(error.localizedDescription)"; return false }
     }
     func completeReview() {
-        guard let index = reviewIndex, journal.sessions[index].todos.allSatisfy(\.validLink) else { message = "Check the Linear issue links before saving."; return }
+        guard let index = reviewIndex, journal.sessions[index].todos.allSatisfy(\.validLink) else { message = "Check the task links before saving."; return }
         let previous = journal
         journal.draft = journal.sessions[index].rolledTodos
         if journal.draft.isEmpty { journal.draft = [Todo()] }

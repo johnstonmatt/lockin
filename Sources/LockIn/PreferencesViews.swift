@@ -35,7 +35,7 @@ struct ScheduleRow: View {
             HStack {
                 Toggle("Enabled", isOn: $schedule.enabled).toggleStyle(.switch).controlSize(.small)
                 Spacer()
-                Button(role: .destructive, action: delete) { Image(systemName: "trash") }.buttonStyle(.plain).accessibilityLabel("Delete schedule")
+                Button(role: .destructive, action: delete) { Image(systemName: "trash") }.buttonStyle(.pointer(.plain)).accessibilityLabel("Delete schedule")
             }
             HStack {
                 DatePicker("Start", selection: Binding(get: {
@@ -51,7 +51,7 @@ struct ScheduleRow: View {
                 ForEach(1...7, id: \.self) { day in
                     Button(Calendar.current.shortWeekdaySymbols[day - 1]) {
                         if schedule.weekdays.contains(day) { schedule.weekdays.remove(day) } else { schedule.weekdays.insert(day) }
-                    }.buttonStyle(.bordered).tint(schedule.weekdays.contains(day) ? .green : .gray)
+                    }.buttonStyle(.pointer(.bordered)).tint(schedule.weekdays.contains(day) ? .green : .gray)
                         .accessibilityValue(schedule.weekdays.contains(day) ? "Selected" : "Not selected")
                 }
             }

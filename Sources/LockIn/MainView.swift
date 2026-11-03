@@ -44,11 +44,13 @@ struct MainView: View {
                     .frame(maxWidth: .infinity).clearsFieldFocusOnClick()
             }.background(Color(nsColor: .windowBackgroundColor))
         }
-        .sheet(isPresented: $store.showPause) { PauseView().environmentObject(store) }
+        .sheet(isPresented: $store.showPause) { PauseView().environmentObject(store).buttonStyle(.pointer(.automatic)) }
         .sheet(isPresented: $store.showEndSession, onDismiss: { if store.journal.pendingReviewID != nil { store.showReview = true } }) {
-            EndSessionView().environmentObject(store)
+            EndSessionView().environmentObject(store).buttonStyle(.pointer(.automatic))
         }
-        .sheet(isPresented: $store.showReview) { DayReviewView().environmentObject(store) }
+        .sheet(isPresented: $store.showReview) { DayReviewView().environmentObject(store).buttonStyle(.pointer(.automatic)) }
+        // Every button shows the pointing-hand cursor; explicit styles below wrap themselves in .pointer too.
+        .buttonStyle(.pointer(.automatic))
         .tint(accent)
         .frame(minWidth: 820, minHeight: 610)
         .alert("Lock In", isPresented: Binding(get: { store.message != nil }, set: { if !$0 { store.message = nil } })) {
@@ -106,7 +108,7 @@ struct FocusView: View {
                 Text("Mark tasks done and carry them forward in the completion review.").font(.caption).foregroundStyle(.secondary)
             }
         } else if store.journal.pendingReviewID != nil {
-            Card { Text("Session complete").font(.title2); Text("Review your day and choose what comes next."); Button("Review day") { store.showReview = true }.buttonStyle(.borderedProminent) }
+            Card { Text("Session complete").font(.title2); Text("Review your day and choose what comes next."); Button("Review day") { store.showReview = true }.buttonStyle(.pointer(.borderedProminent)) }
         } else {
             PlannerView()
         }
@@ -120,29 +122,29 @@ struct SessionTaskRow: View {
     @State private var editing = false
     @State private var title = ""
     @State private var link = ""
-    private var canSave: Bool { todo.with(title: title, linearURL: link).hasTitle && Todo.isValidLink(link) }
+    private var canSave: Bool { todo.with(title: title, link: link).hasTitle && Todo.isValidLink(link) }
     var body: some View {
         if editing {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     TextField("Task", text: $title).textFieldStyle(.lockIn()).onSubmit(save)
-                    LinearLinkField(link: $link, onSubmit: save)
+                    TaskLinkField(link: $link, onSubmit: save)
                     Button("Cancel") { editing = false }.keyboardShortcut(.cancelAction)
-                    Button("Save", action: save).buttonStyle(.borderedProminent).disabled(!canSave)
+                    Button("Save", action: save).buttonStyle(.pointer(.borderedProminent)).disabled(!canSave)
                 }
                 LinkRequirementNote(link: link)
             }
         } else {
             HStack {
                 Image(systemName: todo.completed ? "checkmark.circle.fill" : "circle"); Text(todo.title); Spacer()
-                if let url = URL(string: todo.linearURL), todo.validLink, !todo.linearURL.isEmpty { Link("Linear ↗", destination: url) }
-                Button { title = todo.title; link = todo.linearURL; editing = true } label: { Image(systemName: "pencil") }
-                    .buttonStyle(.plain).help("Edit task").accessibilityLabel("Edit \(todo.title)")
+                TaskLinkBadge(todo: todo)
+                Button { title = todo.title; link = todo.link; editing = true } label: { Image(systemName: "pencil") }
+                    .buttonStyle(.pointer(.plain)).help("Edit task").accessibilityLabel("Edit \(todo.title)")
             }
         }
     }
     private func save() {
-        guard canSave, store.updateTask(id: todo.id, title: title, linearURL: link) else { return }
+        guard canSave, store.updateTask(id: todo.id, title: title, link: link) else { return }
         editing = false
     }
 }
@@ -151,19 +153,19 @@ struct AddSessionTask: View {
     @EnvironmentObject var store: Store
     @State private var title = ""
     @State private var link = ""
-    private var canAdd: Bool { Todo().with(title: title, linearURL: link).hasTitle && Todo.isValidLink(link) }
+    private var canAdd: Bool { Todo().with(title: title, link: link).hasTitle && Todo.isValidLink(link) }
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 TextField("Add a task…", text: $title).textFieldStyle(.lockIn(icon: "plus")).onSubmit(add)
-                LinearLinkField(link: $link, onSubmit: add)
+                TaskLinkField(link: $link, onSubmit: add)
                 Button("Add", systemImage: "plus", action: add).disabled(!canAdd)
             }
             LinkRequirementNote(link: link)
         }
     }
     private func add() {
-        guard canAdd, store.addTask(title: title, linearURL: link) else { return }
+        guard canAdd, store.addTask(title: title, link: link) else { return }
         title = ""; link = ""
     }
 }
@@ -180,7 +182,7 @@ struct SessionButtons: View {
                     Button("Take earned break") { store.takeBreak() }.disabled(log.breakBalance(at: store.now) < 1)
                     Button("Pause…") { store.showPause = true; openWindow(id: "main"); NSApp.activate(ignoringOtherApps: true) }
                 } else {
-                    Button("Resume work") { store.resume() }.buttonStyle(.borderedProminent)
+                    Button("Resume work") { store.resume() }.buttonStyle(.pointer(.borderedProminent))
                     if log.phase == .break { Button("Pause instead…") { store.showPause = true; openWindow(id: "main") } }
                 }
                 if showStartNewDay {
@@ -193,7 +195,7 @@ struct SessionButtons: View {
                 Button(store.journal.pendingReviewID == nil ? "Plan your session" : "Review your day") {
                     store.page = .focus; openWindow(id: "main"); NSApp.activate(ignoringOtherApps: true)
                     if store.journal.pendingReviewID != nil { store.showReview = true }
-                }.buttonStyle(.borderedProminent)
+                }.buttonStyle(.pointer(.borderedProminent))
             }
         }.controlSize(.large)
     }
@@ -243,7 +245,7 @@ struct DistractionsView: View {
                     Text(rule).textSelection(.enabled)
                     Spacer()
                     Button { store.updateProfile { $0.websites.removeAll { $0 == rule } } } label: { Image(systemName: "minus.circle") }
-                        .buttonStyle(.plain).disabled(!store.canEdit).accessibilityLabel("Remove \(rule)")
+                        .buttonStyle(.pointer(.plain)).disabled(!store.canEdit).accessibilityLabel("Remove \(rule)")
                 }
                 Divider()
             }
@@ -256,7 +258,7 @@ struct DistractionsView: View {
                 HStack {
                     Text(app.name); Spacer()
                     Button { store.updateProfile { $0.applications.removeAll { $0.id == app.id } } } label: { Image(systemName: "minus.circle") }
-                        .buttonStyle(.plain).disabled(!store.canEdit).accessibilityLabel("Remove \(app.name)")
+                        .buttonStyle(.pointer(.plain)).disabled(!store.canEdit).accessibilityLabel("Remove \(app.name)")
                 }
             }
         }
