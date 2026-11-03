@@ -8,6 +8,7 @@ extension WorkPhase {
     var color: Color {
         switch self {
         case .work: return Color(light: 0x1baf7a, dark: 0x199e70)
+        case .overtime: return Color(light: 0x8b5cf6, dark: 0x9d74f7)
         case .break: return Color(light: 0x2a78d6, dark: 0x3987e5)
         case .pause: return Color(light: 0xeb6834, dark: 0xd95926)
         }
@@ -15,6 +16,7 @@ extension WorkPhase {
     var label: String {
         switch self {
         case .work: return "Work"
+        case .overtime: return "Overtime"
         case .break: return "Break"
         case .pause: return "Pause"
         }
@@ -72,6 +74,7 @@ struct InsightsView: View {
                     HoursChart(period: period, buckets: buckets) { pinnedDay = $0 }
                     HStack(spacing: 18) {
                         LegendKey(label: "Worked") { RoundedRectangle(cornerRadius: 2).fill(WorkPhase.work.color).frame(width: 9, height: 9) }
+                        LegendKey(label: "Overtime") { RoundedRectangle(cornerRadius: 2).fill(WorkPhase.overtime.color).frame(width: 9, height: 9) }
                         LegendKey(label: "Planned") { Rectangle().fill(Color.primary).frame(width: 12, height: 2) }
                         Spacer()
                         if period != .year { Text("Click a day to see how it unfolded").foregroundStyle(.secondary) }
@@ -132,7 +135,7 @@ private struct Summary: View {
     let stats: WorkStats; let period: InsightsPeriod; let offset: Int
     let range: DateInterval; let totals: PhaseTotals; let nounPhrase: String
     var body: some View {
-        let worked = totals[.work]
+        let worked = totals.worked
         let target = stats.target(in: range)
         let previous = stats.previousWork(period, offset: offset)
         let days = stats.daysWorked(in: range)
@@ -246,12 +249,19 @@ private struct HoursChart: View {
     var body: some View {
         Chart {
             ForEach(buckets) { bucket in
-                BarMark(x: .value("Date", bucket.start, unit: unit), y: .value("Hours", bucket.totals[.work] / 3600), width: .fixed(barWidth))
-                    .foregroundStyle(WorkPhase.work.color)
-                    .cornerRadius(4)
-                    .opacity(emphasis(bucket.start))
-                    .accessibilityLabel(label(bucket.start))
-                    .accessibilityValue("\(hours(bucket.totals[.work])) worked" + (bucket.target > 0 ? " of \(hours(bucket.target)) planned" : ""))
+                // Overtime stacks on top of regular work.
+                ForEach([WorkPhase.work, .overtime], id: \.self) { phase in
+                    let base = phase == .overtime ? bucket.totals[.work] : 0
+                    if bucket.totals[phase] > 0 {
+                        BarMark(x: .value("Date", bucket.start, unit: unit), yStart: .value("Hours", base / 3600),
+                                yEnd: .value("Hours", (base + bucket.totals[phase]) / 3600), width: .fixed(barWidth))
+                            .foregroundStyle(phase.color)
+                            .cornerRadius(4)
+                            .opacity(emphasis(bucket.start))
+                            .accessibilityLabel(label(bucket.start) + (phase == .overtime ? ", overtime" : ""))
+                            .accessibilityValue(phase == .overtime ? hours(bucket.totals[.overtime]) : workedText(bucket))
+                    }
+                }
                 if bucket.target > 0 {
                     RectangleMark(x: .value("Date", bucket.start, unit: unit), y: .value("Planned", bucket.target / 3600),
                                   width: .fixed(barWidth + 8), height: .fixed(2))
@@ -281,7 +291,10 @@ private struct HoursChart: View {
                 if let start = hovered, let bucket = bucket(at: start) {
                     Tooltip {
                         Text(label(bucket.start)).fontWeight(.semibold)
-                        Text("\(hours(bucket.totals[.work])) worked" + (bucket.target > 0 ? " of \(hours(bucket.target)) planned" : ""))
+                        Text(workedText(bucket))
+                        if bucket.totals[.overtime] > 0 {
+                            Text("including \(hours(bucket.totals[.overtime])) overtime").foregroundStyle(WorkPhase.overtime.color)
+                        }
                         if bucket.totals[.break] + bucket.totals[.pause] > 0 {
                             Text("\(hours(bucket.totals[.break])) break · \(hours(bucket.totals[.pause])) paused").foregroundStyle(.secondary)
                         }
@@ -290,6 +303,9 @@ private struct HoursChart: View {
             }
         }
         .frame(height: 220)
+    }
+    private func workedText(_ bucket: InsightBucket) -> String {
+        "\(hours(bucket.totals.worked)) worked" + (bucket.target > 0 ? " of \(hours(bucket.target)) planned" : "")
     }
     private func bucket(at date: Date) -> InsightBucket? { buckets.first { $0.start <= date && date < $0.end } }
     private func emphasis(_ start: Date) -> Double { hovered == nil || hovered == start ? 1 : 0.45 }
@@ -318,7 +334,8 @@ struct DayTimeline: View {
                 chart
             }
             HStack(spacing: 18) {
-                ForEach(WorkPhase.allCases, id: \.self) { phase in
+                // Overtime is listed only on days that had some.
+                ForEach(WorkPhase.allCases.filter { $0 != .overtime || totals[$0] > 0 }, id: \.self) { phase in
                     LegendKey(label: "\(phase.label) · \(hours(totals[phase]))") {
                         RoundedRectangle(cornerRadius: 2).fill(phase.color).frame(width: 9, height: 9)
                     }
@@ -483,7 +500,7 @@ private struct SessionList: View {
             if sessions.isEmpty { Text("No sessions in this period.").foregroundStyle(.secondary) }
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 12) {
                 ForEach(sessions) { session in
-                    let worked = session.seconds(.work, at: now)
+                    let worked = session.worked(at: now)
                     let totals = WorkPhase.allCases.reduce(into: PhaseTotals()) { $0.seconds[$1] = session.seconds($1, at: now) }
                     GridRow(alignment: .center) {
                         Image(systemName: icon(session)).foregroundStyle(.secondary).help(status(session))

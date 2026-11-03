@@ -65,14 +65,17 @@ import LockInCore
     }
     var profile: Profile { state.profiles.first { $0.id == state.selectedProfileID } ?? state.profiles[0] }
     var active: Bool { state.session != nil }
-    var locked: Bool { state.session?.locked == true }
+    /// Hardcore Mode holds until the work target is reached; overtime can be ended, quit or updated freely.
+    var locked: Bool { state.session?.locked == true && workLog?.targetReached(at: now) != true }
+    /// Whether the open session has reached its target, so it can be finished (and is counting overtime).
+    var targetReached: Bool { workLog?.targetReached(at: now) == true }
     var canEdit: Bool { !locked && (profile.passwordHash == nil || unlockedProfiles.contains(profile.id)) && !active }
     var timerText: String {
-        let seconds: Double
-        if let log = workLog {
-            seconds = log.phase == .break ? log.breakBalance(at: now) : log.remaining(at: now)
-        } else { seconds = journal.hours * 3600 }
-        return Self.clock(seconds)
+        guard let log = workLog else { return Self.clock(journal.hours * 3600) }
+        if log.phase == .break { return Self.clock(log.breakBalance(at: now)) }
+        // Past the target, the timer counts overtime up instead of work down.
+        if log.targetReached(at: now) { return "+" + Self.clock(log.seconds(.overtime, at: now)) }
+        return Self.clock(log.remaining(at: now))
     }
     static func clock(_ seconds: Double) -> String {
         let value = max(0, Int(ceil(seconds)))
@@ -141,18 +144,16 @@ import LockInCore
         }
     }
     func resume() {
-        guard let log = workLog, log.phase != .work else { return }
-        changePhase(hook: "resume") { log, now in log.transition(to: .work, at: now); return true }
+        guard let log = workLog, log.phase?.isFocused == false else { return }
+        changePhase(hook: "resume") { log, now in log.transition(to: log.focusPhase(at: now), at: now); return true }
     }
     /// Brings the open session up to date, applies a phase change and, if it took effect, runs the hook and saves.
-    /// If catching up reaches the work target, the session concludes instead.
     @discardableResult private func changePhase(hook: String, _ change: (inout WorkLog, Date) -> Bool) -> Bool {
         guard let index = activeLogIndex else { return false }
         let now = Date()
         journal.sessions[index].advance(at: now)
-        if journal.sessions[index].endedAt != nil { conclude(journal.sessions[index]); return false }
         guard change(&journal.sessions[index], now) else { return false }
-        if journal.sessions[index].phase != .work { blocker.deactivate() }
+        if journal.sessions[index].phase?.isFocused != true { blocker.deactivate() }
         runHook(hook); saveAll(); return true
     }
     /// Adds a task to the running session. Returns false (with a message) if the title is blank or the link is invalid.
@@ -201,14 +202,20 @@ import LockInCore
         }
         terminate()
     }
+    /// Ends a session that has reached its target, overtime included, and opens the review.
+    func finishSession() {
+        guard let index = activeLogIndex else { return }
+        now = Date()
+        journal.sessions[index].advance(at: now)
+        guard journal.sessions[index].complete(at: now) else { return }
+        conclude(journal.sessions[index])
+    }
     /// Closes the open session before its target so a fresh one can be planned (e.g. the next morning).
     func endSession(reason: String) {
         guard !locked, let index = activeLogIndex else { return }
         now = Date()
         journal.sessions[index].advance(at: now)
-        if journal.sessions[index].endedAt == nil {
-            guard journal.sessions[index].endEarly(reason: reason, at: now) else { return }
-        }
+        guard journal.sessions[index].endEarly(reason: reason, at: now) else { return }
         // The review is presented once the end-session sheet has dismissed (see MainView); swapping sheets in one update is unreliable.
         conclude(journal.sessions[index], presentReview: !showEndSession)
     }
@@ -223,17 +230,20 @@ import LockInCore
         if let index = activeLogIndex {
             let previous = journal.sessions[index].phase
             journal.sessions[index].advance(at: now)
-            let log = journal.sessions[index]
-            if log.endedAt != nil {
-                conclude(log)
-            } else if log.phase != previous {
-                // advance() only ever moves a finished break back to work.
-                runHook("resume"); saveAll()
+            let phase = journal.sessions[index].phase
+            if phase != previous {
+                // advance() only ends a spent break or moves work into overtime.
+                if phase == .overtime && previous == .work {
+                    runHook("overtime"); NSApp?.showMainWindow()
+                } else {
+                    runHook("resume")
+                }
+                saveAll()
             } else if now.timeIntervalSince(lastCheckpoint) >= 10 {
                 saveAll()
             }
         }
-        if let session = state.session, workLog?.phase == .work, enforceBlocking { blocker.enforce(profile: session.profile) }
+        if let session = state.session, workLog?.phase?.isFocused == true, enforceBlocking { blocker.enforce(profile: session.profile) }
         else { blocker.deactivate() }
     }
     private func loadJournal() {
@@ -326,6 +336,7 @@ import LockInCore
         switch url.host {
         case "start": start()
         case "stop", "pause": showPause = active
+        case "finish": finishSession()
         case "break": takeBreak()
         case "resume": resume()
         case "update": quitForUpdate()

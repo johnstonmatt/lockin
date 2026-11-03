@@ -68,7 +68,7 @@ struct MenuPanel: View {
         VStack(spacing: 18) {
             HStack { Label("Lock In", systemImage: "scope").font(.headline); Spacer(); Text(store.active ? "ACTIVE" : "READY").font(.caption).foregroundStyle(.secondary) }
             Text(store.timerText).font(.system(size: 48, weight: .light, design: .rounded)).monospacedDigit()
-            Text(store.workLog?.phase == .pause ? "Paused · your reason is recorded" : store.workLog?.phase == .break ? "Enjoy your earned break." : "A little space for your best work.").foregroundStyle(.secondary)
+            Text(caption).foregroundStyle(.secondary)
             SessionButtons()
             Divider()
             HStack {
@@ -77,5 +77,13 @@ struct MenuPanel: View {
                 Button("Quit") { NSApp.terminate(nil) }.disabled(store.locked)
             }.buttonStyle(.pointer(.plain))
         }.padding(22).frame(width: 310).tint(.mint).buttonStyle(.pointer(.automatic))
+    }
+    private var caption: String {
+        switch store.workLog?.phase {
+        case .pause: return "Paused · your reason is recorded"
+        case .break: return "Enjoy your earned break."
+        case .overtime: return "Overtime · target reached"
+        case .work, nil: return "A little space for your best work."
+        }
     }
 }

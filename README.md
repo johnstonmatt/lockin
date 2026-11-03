@@ -32,9 +32,10 @@ Open Lock In, enter your TODOs (each can have an optional link, shown as Linear,
 - Work earns break time continuously at **5 minutes per hour**: two worked hours earns ten minutes. This is a proportional rate, not a two-hour unlock threshold.
 - Taking a break spends the earned balance. Returning early preserves unused time; reaching zero resumes work automatically. Breaks cannot accrue more credit.
 - Pausing requires a nonblank written justification. Pauses neither spend nor earn break credit. Quitting during work or a break opens that same justification prompt.
-- Breaks and pauses do not count toward the work target. The session finishes naturally only after the target work time is reached.
+- Breaks and pauses do not count toward the work target.
+- **Overtime:** reaching the target doesn’t end the session. Work continues as overtime, shown in purple and recorded as separate `overtime` intervals. The timer counts it up (`+00:12:34`), blocking stays on, and it earns break time at the same rate. **Finish session** ends it and opens the review, recorded as `finished_naturally: true`. Hardcore Mode stops applying once the target is met.
 - Tasks can be added to a running session, and existing tasks renamed or relinked with the pencil button. This works during a break or pause too. They’re saved to the session journal immediately and appear in the review like planned tasks.
-- **Start new day…** ends the current session early (for example, one left paused overnight). It asks for a reason, prefilled as “Starting a new day”, and saves it as `end_reason`. The session is recorded as `finished_naturally: false` and goes to the usual review, so you can roll tasks into a new plan. Not available in Hardcore Mode.
+- **Start new day…** ends the current session early (for example, one left paused overnight). It asks for a reason, prefilled as “Starting a new day”, and saves it as `end_reason`. The session is recorded as `finished_naturally: false` and goes to the usual review, so you can roll tasks into a new plan. Not available in Hardcore Mode. Once the target is reached, **Finish session** replaces it.
 - Completion opens a day timeline, including all work, break and pause intervals overlapping that calendar day. Edit task titles/links, mark TODOs complete, and select **Next session** separately for each task. Saving the review creates a new draft containing only selected tasks, with source-task IDs retained for lineage.
 - Earned credit is scoped to each session and does not roll forward. Task rollover is explicit, including for completed tasks.
 - Sleep and unexpected app downtime become system-explained pauses. App checkpoints are written every ten seconds; abrupt termination may lose at most the work since the last successful checkpoint. No idle/keyboard monitoring is performed: time counts as work while the work phase is running.
@@ -57,7 +58,7 @@ Links are saved as URLs only. No Linear, GitHub or Notion account access or API 
 - Hardcore preferences lock and password-gated preferences.
 - History and charts; shell hooks on start, stop, break, resume, and pause.
 - Launch at login and global Control–Option–Command–F shortcut (opens pause justification during a session).
-- `lockin://start`, `lockin://stop`, `lockin://pause`, `lockin://break`, `lockin://resume`, `lockin://update`; start respects planning/review requirements, stop requires a pause reason. `update` (used by the install script) pauses with “Updating Lock In”, quits, and resumes on relaunch; it is refused in Hardcore Mode.
+- `lockin://start`, `lockin://stop`, `lockin://pause`, `lockin://break`, `lockin://resume`, `lockin://finish`, `lockin://update`; `finish` ends a session that has reached its target; start respects planning/review requirements, stop requires a pause reason. `update` (used by the install script) pauses with “Updating Lock In”, quits, and resumes on relaunch; it is refused in Hardcore Mode.
 
 ## Browser permission
 

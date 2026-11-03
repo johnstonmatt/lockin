@@ -48,18 +48,48 @@ final class JournalTests: XCTestCase {
         XCTAssertEqual(log.remaining(at: start.addingTimeInterval(10800)), 7200)
         log.transition(to: .work, at: start.addingTimeInterval(10800))
         log.advance(at: start.addingTimeInterval(18000))
-        XCTAssertTrue(log.finishedNaturally)
+        XCTAssertEqual(log.phase, .overtime)
         XCTAssertEqual(log.seconds(.pause, at: start.addingTimeInterval(18000)), 3600)
     }
-    func testNaturalFinishUsesActualWorkTarget() {
+    func testOvertimeStartsExactlyAtTheWorkTarget() {
         var log = makeLog(hours: 2)
         XCTAssertTrue(log.takeBreak(at: start.addingTimeInterval(3600)))
         log.transition(to: .work, at: start.addingTimeInterval(3720))
         log.advance(at: start.addingTimeInterval(7200))
+        XCTAssertEqual(log.phase, .work)
+        let late = start.addingTimeInterval(9000)
+        log.advance(at: late)
+        XCTAssertNil(log.endedAt, "reaching the target doesn't end the session")
+        XCTAssertEqual(log.phase, .overtime)
+        XCTAssertEqual(log.intervals.last?.start, start.addingTimeInterval(7320))
+        XCTAssertEqual(log.seconds(.work, at: late), 7200)
+        XCTAssertEqual(log.seconds(.overtime, at: late), 1680)
+        XCTAssertEqual(log.worked(at: late), 8880)
+        XCTAssertTrue(log.complete(at: late))
+        XCTAssertTrue(log.finishedNaturally)
+        XCTAssertEqual(log.endedAt, late)
+    }
+    func testCompleteRequiresTheTarget() {
+        var log = makeLog(hours: 1)
+        XCTAssertFalse(log.complete(at: start.addingTimeInterval(1800)))
         XCTAssertNil(log.endedAt)
-        log.advance(at: start.addingTimeInterval(9000))
-        XCTAssertEqual(log.endedAt, start.addingTimeInterval(7320))
-        XCTAssertEqual(log.seconds(.work, at: start.addingTimeInterval(9000)), 7200)
+    }
+    func testOvertimeEarnsBreaksAndBreaksReturnToOvertime() {
+        var log = makeLog(hours: 1)
+        log.advance(at: start.addingTimeInterval(7200))
+        XCTAssertEqual(log.phase, .overtime)
+        // 1 h work + 1 h overtime earns 10 minutes.
+        XCTAssertEqual(log.breakBalance(at: start.addingTimeInterval(7200)), 600)
+        XCTAssertTrue(log.takeBreak(at: start.addingTimeInterval(7200)))
+        log.advance(at: start.addingTimeInterval(7800))
+        XCTAssertEqual(log.phase, .overtime, "a spent break returns to overtime, not regular work")
+        XCTAssertEqual(log.intervals.filter { $0.kind == .work }.count, 1, "no zero-length work interval")
+        XCTAssertTrue(log.pause(reason: "Lunch", at: start.addingTimeInterval(8000)))
+        XCTAssertEqual(log.focusPhase(at: start.addingTimeInterval(9000)), .overtime)
+        let yaml = SessionYAML.encode(log, at: start.addingTimeInterval(9000))
+        XCTAssertTrue(yaml.contains("kind: overtime"))
+        XCTAssertTrue(yaml.contains("work_seconds: 3600.0"))
+        XCTAssertTrue(yaml.contains("overtime_seconds: 3800.0"))
     }
     func testRolloverCopiesSelectedTasksWithLineage() {
         var log = makeLog()
@@ -126,7 +156,7 @@ final class JournalTests: XCTestCase {
         let encoded = String(decoding: try JSONEncoder().encode(todo), as: UTF8.self)
         XCTAssertTrue(encoded.contains("\"linearURL\""))
         let yaml = SessionYAML.encode(WorkLog(todos: [todo], targetSeconds: 60, now: start), at: start)
-        XCTAssertTrue(yaml.contains("schema_version: 2"))
+        XCTAssertTrue(yaml.contains("schema_version: 3"))
         XCTAssertTrue(yaml.contains("link_service: \"linear\""))
     }
 }

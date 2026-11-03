@@ -37,7 +37,7 @@ struct PreferencesView: View {
             Label("Workflows", systemImage: "terminal").font(.headline)
             Picker("Run script on", selection: $event) {
                 Text("Focus starts").tag("start"); Text("Focus ends").tag("stop")
-                Text("Break starts").tag("break"); Text("Focus resumes").tag("resume"); Text("Session pauses").tag("pause")
+                Text("Overtime starts").tag("overtime"); Text("Break starts").tag("break"); Text("Focus resumes").tag("resume"); Text("Session pauses").tag("pause")
             }
             TextEditor(text: Binding(get: { store.profile.hooks[event] ?? "" }, set: { value in store.updateProfile { $0.hooks[event] = value } }))
                 .font(.system(.body, design: .monospaced)).frame(height: 110).lockInEditor().disabled(!store.canEdit)
@@ -68,7 +68,7 @@ struct PreferencesView: View {
                 do { if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() } }
                 catch { store.message = "Login setting failed: \(error.localizedDescription)" }
             }
-            Text("Global shortcut: ⌃⌥⌘F · In Lock In: ⇧⌘F\nAutomation URLs: lockin://start · lockin://stop · lockin://break · lockin://resume")
+            Text("Global shortcut: ⌃⌥⌘F · In Lock In: ⇧⌘F\nAutomation URLs: lockin://start · lockin://stop · lockin://break · lockin://resume · lockin://finish")
                 .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
             Divider()
             Text("About this build").font(.headline)
