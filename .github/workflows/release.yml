@@ -1,0 +1,208 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+# Releases are serial by nature: a second push should update the pending
+# release PR, never race a build that is already uploading assets. Unlike CI,
+# an in-flight run here must not be cancelled.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # Every release must be Developer ID signed and notarized: an ad-hoc build
+  # downloads quarantined and Gatekeeper rejects it. This runs before
+  # release-please rather than in build-macos because by the time build-macos
+  # starts, the tag and GitHub release already exist, so failing there would
+  # leave a published release with no asset. Failing here means no release PR,
+  # and so no release, until ./Scripts/setup-release.ts has stored the secrets.
+  #
+  # MACOS_CERTIFICATE_PASSWORD isn't checked: a .p12 exported without a
+  # password is valid, and Actions can't tell an empty secret from a missing
+  # one. A missing password for a .p12 that has one still fails the build, at
+  # "Import Developer ID certificate", before anything is signed or uploaded.
+  signing-secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require Apple signing secrets
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          missing=()
+          for name in MACOS_CERTIFICATE MACOS_SIGN_IDENTITY APPLE_API_KEY \
+            APPLE_API_KEY_ID APPLE_API_ISSUER; do
+            [ -n "${!name}" ] || missing+=("$name")
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing secrets: ${missing[*]}. Releases must be signed and notarized; run ./Scripts/setup-release.ts."
+            exit 1
+          fi
+          echo "Signing secrets are set."
+
+  # Keeps a "chore(main): release x.y.z" PR open and up to date with every
+  # conventional commit that lands on main. Merging that PR is the release: it
+  # bumps the version in Resources/Info.plist, writes CHANGELOG.md, tags, and
+  # cuts the GitHub release, which is what triggers the build below.
+  #
+  # release-please-config.json is strict JSON and can't explain itself, so:
+  # release-type is "go" purely because that strategy writes no version file of
+  # its own (simple → version.txt, node → package.json), which would mean two
+  # places claiming to know the version. Info.plist is the only one, updated by
+  # the generic updater on the lines marked x-release-please-version. Both
+  # CFBundleShortVersionString and CFBundleVersion carry the release version.
+  # Nothing about the build is Go-specific.
+  #
+  # bump-minor-pre-major keeps a breaking change below 1.0 at 0.x → 0.(x+1)
+  # instead of reading a single `feat!:` as "ship 1.0.0". Going to 1.0 should
+  # be deliberate: put `Release-As: 1.0.0` in a commit footer when it's time.
+  #
+  # initial-version matters only for the very first release: with no tag to
+  # bump from, release-please would otherwise default to 1.0.0.
+  release-please:
+    needs: signing-secrets
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          # GITHUB_TOKEN works, but PRs opened with it don't trigger other
+          # workflows, so ci.yml never runs on the release PR. Set a PAT with
+          # repo scope as RELEASE_PLEASE_TOKEN to get checks on it.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+
+  build-macos:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    env:
+      APP: dist/Lock In.app
+      # All guaranteed non-empty by signing-secrets, so no step below is
+      # conditional on them: a release is signed, notarized and passes
+      # Gatekeeper, or the job fails and nothing is uploaded.
+      MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+    steps:
+      # Build the tag, not the branch head: another push can land on main
+      # between the release commit and this job starting.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - name: Toolchain
+        run: xcodebuild -version && swift --version
+
+      # Test the exact commit being shipped before signing anything.
+      - name: Test
+        run: swift test
+
+      - name: Import Developer ID certificate
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          # Runner-lifetime keychain; the lock timeout just bounds the damage
+          # if a job hangs.
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" \
+            -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          # Without this, codesign blocks on a GUI prompt for keychain access
+          # that no one is there to answer.
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          # Keep login.keychain in the search list: the Apple intermediate
+          # certs live there and codesign needs them to build the chain.
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+
+          rm "$RUNNER_TEMP/cert.p12"
+
+      # build-app.sh adds the Hardened Runtime and a secure timestamp whenever
+      # the identity is a real one; notarization requires both.
+      - name: Build and sign
+        env:
+          CODESIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+        run: bash Scripts/build-app.sh
+
+      - name: Verify signature
+        run: codesign --verify --deep --strict --verbose=2 "$APP"
+
+      # Under the Hardened Runtime, Apple Events to browsers are refused unless
+      # the signature carries this entitlement, and browser blocking would
+      # silently stop working. Neither codesign nor notarization objects if it's
+      # missing, so assert it's really in the signature.
+      - name: Verify Apple Events entitlement
+        run: |
+          set -euo pipefail
+          if ! codesign -d --entitlements - --xml "$APP" 2>/dev/null \
+            | grep -q "com.apple.security.automation.apple-events"; then
+            echo "::error::apple-events entitlement missing from the signed app; browser blocking would fail."
+            exit 1
+          fi
+          echo "apple-events entitlement present."
+
+      # If notarization rejects a build, this says whether the runtime flag,
+      # timestamp or entitlements went missing rather than the credentials.
+      - name: Report signing state
+        run: |
+          codesign -dvvv "$APP" 2>&1 | grep -E "^(CodeDirectory|Identifier|TeamIdentifier|Timestamp|Authority)" || true
+          codesign -d --entitlements - --xml "$APP" 2>/dev/null || true
+
+      - name: Notarize and staple
+        run: |
+          set -euo pipefail
+          echo "$APPLE_API_KEY" | base64 --decode > "$RUNNER_TEMP/api-key.p8"
+
+          # notarytool won't take a bundle directory; the zip is purely a
+          # transport for the submission.
+          ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+            --key "$RUNNER_TEMP/api-key.p8" \
+            --key-id "$APPLE_API_KEY_ID" \
+            --issuer "$APPLE_API_ISSUER" \
+            --wait
+
+          # Staple the ticket into the .app itself so first launch validates
+          # without a network round trip. The asset is zipped after this.
+          xcrun stapler staple "$APP"
+          rm "$RUNNER_TEMP/api-key.p8"
+
+      - name: Verify Gatekeeper acceptance
+        run: spctl --assess --type execute --verbose=4 "$APP"
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          # ditto, not `zip`: it preserves the symlinks and extended attributes
+          # inside a .app bundle that the signature is computed over.
+          ARCH="$(uname -m)"
+          ASSET="LockIn-${{ needs.release-please.outputs.tag_name }}-macos-$ARCH.zip"
+          ditto -c -k --keepParent "$APP" "$ASSET"
+          echo "ASSET=$ASSET" >> "$GITHUB_ENV"
+
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ needs.release-please.outputs.tag_name }}" \
+            "$ASSET" --clobber

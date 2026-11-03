@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A second push to the same branch makes the first run's result irrelevant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    # macOS, not Linux: both targets import AppKit/SwiftUI, and the app tests
+    # construct the real Store.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Package.swift needs Swift 6 tools. Printed so a runner image change that
+      # breaks the build is visible at a glance.
+      - name: Toolchain
+        run: xcodebuild -version && swift --version
+
+      # Kept as separate steps so a failure names which check broke.
+      - name: Build
+        run: swift build
+
+      - name: Test
+        run: swift test
+
+      # The same packaging the release uses, ad-hoc signed, so a broken bundle
+      # layout or plist is caught on the PR rather than after a release is cut.
+      - name: Package app
+        run: |
+          bash Scripts/build-app.sh
+          plutil -lint "dist/Lock In.app/Contents/Info.plist"
+          codesign --verify --strict --verbose=2 "dist/Lock In.app"
+
+      - name: Shell scripts parse
+        run: for f in Scripts/*.sh install-app; do bash -n "$f"; done
