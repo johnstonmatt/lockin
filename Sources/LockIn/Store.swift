@@ -9,7 +9,6 @@ import LockInCore
     @Published var message: String?
     @Published var unlockedProfiles: Set<UUID> = []
     @Published var page: Page = .focus
-    @Published var mode: SessionMode = .timer
     @Published var lockSession = false
     @Published var journal = JournalState()
     @Published var showPause = false
@@ -82,8 +81,7 @@ import LockInCore
         guard storageAvailable else { return }
         do {
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            try encoder.encode(state).write(to: file, options: .atomic)
+            try Self.encoder.encode(state).write(to: file, options: .atomic)
         } catch { message = "Could not save changes: \(error.localizedDescription)" }
     }
     func updateProfile(_ edit: (inout Profile) -> Void) {
@@ -112,20 +110,19 @@ import LockInCore
         }
         updateProfile { if !$0.websites.contains(rule) { $0.websites.append(rule) } }
     }
-    func start(profile: Profile? = nil, duration: TimeInterval? = nil, scheduledLock: Bool? = nil) {
+    func start() {
         guard !active, storageAvailable, journalWritable else { return }
         now = Date()
         guard journal.pendingReviewID == nil else { showReview = true; return }
-        let todos = journal.draft.filter { !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let todos = journal.draft.filter(\.hasTitle)
         guard !todos.isEmpty else { showPlanner = true; message = "Add at least one task before starting."; return }
         guard todos.allSatisfy(\.validLink), journal.hours.isFinite, journal.hours > 0, journal.hours <= 24 else {
             message = "Use a work target between 0 and 24 hours and valid https://linear.app issue links."; return
         }
-        let target = profile ?? self.profile
         let log = WorkLog(todos: todos, targetSeconds: journal.hours * 3600, now: Date())
         journal.sessions.append(log)
         guard persistJournal() else { journal.sessions.removeLast(); return }
-        state.session = FocusSession(profile: target, mode: .timer, locked: scheduledLock ?? lockSession, now: log.startedAt, duration: log.targetSeconds)
+        state.session = FocusSession(profile: profile, locked: lockSession, startedAt: log.startedAt)
         showPlanner = false; runHook("start"); save(); tick()
     }
     func stop() {
@@ -134,45 +131,50 @@ import LockInCore
         showPause = true
     }
     func pause(reason: String) {
-        guard let index = activeLogIndex else { return }
-        journal.sessions[index].advance(at: Date())
-        guard journal.sessions[index].pause(reason: reason, at: Date()) else { return }
-        showPause = false; syncSession(); blocker.deactivate(); runHook("pause"); persistJournal(); save()
+        if changePhase(hook: "pause", { $0.pause(reason: reason, at: $1) }) { showPause = false }
     }
     func takeBreak() {
-        guard let index = activeLogIndex else { return }
-        journal.sessions[index].advance(at: Date())
-        guard journal.sessions[index].takeBreak(at: Date()) else { message = "Work earns five minutes of break per hour. No break time is available yet."; return }
-        syncSession(); blocker.deactivate(); runHook("break"); persistJournal(); save()
+        guard workLog != nil else { return }
+        if !changePhase(hook: "break", { $0.takeBreak(at: $1) }), workLog != nil {
+            message = "Work earns five minutes of break per hour. No break time is available yet."
+        }
     }
     func resume() {
-        guard let index = activeLogIndex, journal.sessions[index].phase != .work else { return }
-        journal.sessions[index].advance(at: Date())
-        journal.sessions[index].transition(to: .work, at: Date())
-        syncSession(); runHook("resume"); persistJournal(); save()
+        guard let log = workLog, log.phase != .work else { return }
+        changePhase(hook: "resume") { log, now in log.transition(to: .work, at: now); return true }
+    }
+    /// Brings the open session up to date, applies a phase change and, if it took effect, runs the hook and saves.
+    /// If catching up reaches the work target, the session concludes instead.
+    @discardableResult private func changePhase(hook: String, _ change: (inout WorkLog, Date) -> Bool) -> Bool {
+        guard let index = activeLogIndex else { return false }
+        let now = Date()
+        journal.sessions[index].advance(at: now)
+        if journal.sessions[index].endedAt != nil { conclude(journal.sessions[index]); return false }
+        guard change(&journal.sessions[index], now) else { return false }
+        if journal.sessions[index].phase != .work { blocker.deactivate() }
+        runHook(hook); saveAll(); return true
     }
     /// Adds a task to the running session. Returns false (with a message) if the title is blank or the link is invalid.
     @discardableResult func addTask(title: String, linearURL: String = "") -> Bool {
-        guard let index = activeLogIndex else { return false }
-        var todo = Todo(title: title.trimmingCharacters(in: .whitespacesAndNewlines))
-        todo.linearURL = linearURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !todo.title.isEmpty else { return false }
-        guard todo.validLink else { message = "Use an https://linear.app issue URL."; return false }
-        journal.sessions[index].todos.append(todo)
-        guard persistJournal() else { journal.sessions[index].todos.removeLast(); return false }
-        return true
+        editTasks { $0.append(Todo().with(title: title, linearURL: linearURL)); return $0.count - 1 }
     }
     /// Renames or relinks a task in the running session. Invalid edits are rejected and leave the task unchanged.
     @discardableResult func updateTask(id: UUID, title: String, linearURL: String) -> Bool {
-        guard let index = activeLogIndex, let taskIndex = journal.sessions[index].todos.firstIndex(where: { $0.id == id }) else { return false }
-        var todo = journal.sessions[index].todos[taskIndex]
-        todo.title = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        todo.linearURL = linearURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !todo.title.isEmpty else { return false }
-        guard todo.validLink else { message = "Use an https://linear.app issue URL."; return false }
-        let previous = journal.sessions[index].todos[taskIndex]
-        journal.sessions[index].todos[taskIndex] = todo
-        guard persistJournal() else { journal.sessions[index].todos[taskIndex] = previous; return false }
+        editTasks { todos in
+            guard let index = todos.firstIndex(where: { $0.id == id }) else { return nil }
+            todos[index] = todos[index].with(title: title, linearURL: linearURL); return index
+        }
+    }
+    /// Applies an edit to the running session's tasks; `edit` returns the index of the changed task.
+    /// The edit is rolled back if that task is invalid or the journal can't be saved.
+    private func editTasks(_ edit: (inout [Todo]) -> Int?) -> Bool {
+        guard let index = activeLogIndex else { return false }
+        var todos = journal.sessions[index].todos
+        guard let changed = edit(&todos), todos[changed].hasTitle else { return false }
+        guard todos[changed].validLink else { message = Todo.linkRequirement; return false }
+        let previous = journal.sessions[index].todos
+        journal.sessions[index].todos = todos
+        guard persistJournal() else { journal.sessions[index].todos = previous; return false }
         return true
     }
     /// Used by Scripts/install-app.sh: pauses a working or break phase, remembers to resume after relaunch, then quits.
@@ -207,17 +209,9 @@ import LockInCore
         for interval in log.intervals where interval.kind == .work {
             state.records.append(FocusRecord(profileName: "Focus", start: interval.start, end: interval.end ?? now, completed: log.finishedNaturally))
         }
-        persistJournal(); save(); NSApp?.activate(ignoringOtherApps: true)
-        NSApp?.windows.first { $0.identifier?.rawValue == "main" }?.makeKeyAndOrderFront(nil)
+        saveAll(); NSApp?.showMainWindow()
     }
     private var activeLogIndex: Int? { journal.sessions.lastIndex { $0.endedAt == nil } }
-    private func syncSession() {
-        guard let log = workLog, var session = state.session else { return }
-        session.isBreak = log.phase != .work
-        session.phaseStartedAt = log.intervals.last!.start
-        session.deadline = log.phase == .pause ? nil : Date().addingTimeInterval(log.phase == .break ? log.breakBalance(at: Date()) : log.remaining(at: Date()))
-        state.session = session
-    }
     func tick() {
         now = Date()
         if let index = activeLogIndex {
@@ -226,10 +220,11 @@ import LockInCore
             let log = journal.sessions[index]
             if log.endedAt != nil {
                 conclude(log)
-            } else {
-                syncSession()
-                if log.phase != previous { runHook("resume"); persistJournal(); save() }
-                if now.timeIntervalSince(lastCheckpoint) >= 10 { persistJournal(); save() }
+            } else if log.phase != previous {
+                // advance() only ever moves a finished break back to work.
+                runHook("resume"); saveAll()
+            } else if now.timeIntervalSince(lastCheckpoint) >= 10 {
+                saveAll()
             }
         }
         // A schedule prompts for a plan; it must never bypass task entry or the previous review.
@@ -250,7 +245,7 @@ import LockInCore
                 journal = try JSONDecoder().decode(JournalState.self, from: Data(contentsOf: snapshot))
             }
             if let log = workLog {
-                if state.session == nil { state.session = FocusSession(profile: profile, mode: .timer, locked: false, now: log.startedAt, duration: log.targetSeconds) }
+                if state.session == nil { state.session = FocusSession(profile: profile, locked: false, startedAt: log.startedAt) }
                 // Time while the app was not running earns no credit. Preserve it as an interruption.
                 if let checkpoint = try? FileManager.default.attributesOfItem(atPath: snapshot.path)[.modificationDate] as? Date,
                    Date().timeIntervalSince(checkpoint) > 15 {
@@ -273,16 +268,20 @@ import LockInCore
             }
         } catch { journalWritable = false; message = "Could not read ~/.lockin/state.json. Original data is preserved. \(error.localizedDescription)" }
     }
+    /// Saves both the session journal (~/.lockin) and preferences/session state.
+    func saveAll() { persistJournal(); save() }
+    private static let encoder: JSONEncoder = {
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]; return encoder
+    }()
     @discardableResult func persistJournal() -> Bool {
         guard journalWritable else { return false }
         do {
             try FileManager.default.createDirectory(at: journalDirectory, withIntermediateDirectories: true)
-            let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             for log in journal.sessions {
                 let name = "session-" + log.id.uuidString + ".yaml"
                 try SessionYAML.encode(log, at: now).write(to: journalDirectory.appendingPathComponent(name), atomically: true, encoding: .utf8)
             }
-            try encoder.encode(journal).write(to: journalDirectory.appendingPathComponent("state.json"), options: .atomic)
+            try Self.encoder.encode(journal).write(to: journalDirectory.appendingPathComponent("state.json"), options: .atomic)
             lastCheckpoint = Date(); return true
         } catch { message = "Could not save session tracking in ~/.lockin: \(error.localizedDescription)"; return false }
     }
@@ -316,7 +315,8 @@ import LockInCore
         guard let session = state.session, let script = session.profile.hooks[event], !script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let process = Process(); process.executableURL = URL(fileURLWithPath: "/bin/zsh"); process.arguments = ["-c", script]
         process.environment = ProcessInfo.processInfo.environment.merging([
-            "LOCKIN_EVENT": event, "LOCKIN_PROFILE": session.profile.name, "LOCKIN_MODE": session.mode.rawValue
+            // LOCKIN_MODE is kept for existing hook scripts; every session is now a timed work target.
+            "LOCKIN_EVENT": event, "LOCKIN_PROFILE": session.profile.name, "LOCKIN_MODE": "Timer"
         ]) { _, new in new }
         process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
         do { try process.run() } catch { message = "Workflow failed to start: \(error.localizedDescription)" }
@@ -331,5 +331,13 @@ import LockInCore
         case "update": quitForUpdate()
         default: break
         }
+    }
+}
+
+extension NSApplication {
+    /// Brings Lock In forward with its main window, e.g. for a review or a pause prompt.
+    func showMainWindow() {
+        activate(ignoringOtherApps: true)
+        windows.first { $0.identifier?.rawValue == "main" }?.makeKeyAndOrderFront(nil)
     }
 }

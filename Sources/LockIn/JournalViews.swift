@@ -11,10 +11,10 @@ struct TodoEditor: View {
                 TextField("What are you working on?", text: $todo.title).textFieldStyle(.lockIn())
             }
             HStack {
-                TextField("Linear issue URL (optional)", text: $todo.linearURL).textFieldStyle(.lockIn(icon: "link", invalid: !todo.validLink))
+                LinearLinkField(link: $todo.linearURL)
                 if review { Toggle("Next session", isOn: $todo.rollForward).toggleStyle(.checkbox) }
             }
-            if !todo.validLink { Text("Use an https://linear.app issue URL.").font(.caption).foregroundStyle(.red) }
+            LinkRequirementNote(link: todo.linearURL)
         }.padding(.vertical, 6)
     }
 }

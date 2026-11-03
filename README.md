@@ -9,7 +9,7 @@ bash Scripts/build-app.sh
 open "dist/Lock In.app"
 ```
 
-To build and install (or update) the app in `/Applications`, run `./install` (a shortcut for `Scripts/install-app.sh`). A running copy is told to quit with `lockin://update`. This pauses an in-progress session with the reason “Updating Lock In”, and the session resumes automatically once the new version opens. A pause you started yourself stays paused. In Hardcore Mode the app refuses to quit, and the script stops without changing the installed app.
+To build and install (or update) the app in `/Applications`, run `./install-app` (a shortcut for `Scripts/install-app.sh`). A running copy is told to quit with `lockin://update`. This pauses an in-progress session with the reason “Updating Lock In”, and the session resumes automatically once the new version opens. A pause you started yourself stays paused. In Hardcore Mode the app refuses to quit, and the script stops without changing the installed app.
 
 Use the packaged app, rather than `swift run`, for browser Automation permission and URL handling. The build script creates an ad-hoc signed app for local development. Distribution to other Macs needs Developer ID signing and notarization. Open `Package.swift` in Xcode to develop.
 

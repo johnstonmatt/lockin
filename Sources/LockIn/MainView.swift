@@ -30,7 +30,7 @@ struct MainView: View {
                             Text(subtitle).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Label(store.active ? (store.state.session?.isBreak == true ? "On a break" : "Focusing") : "Your time, protected", systemImage: store.active ? "circle.fill" : "shield.lefthalf.filled")
+                        Label(statusText, systemImage: store.active ? "circle.fill" : "shield.lefthalf.filled")
                             .font(.caption).foregroundStyle(accent).padding(10).background(accent.opacity(0.1), in: Capsule())
                     }
                     switch store.page {
@@ -54,6 +54,14 @@ struct MainView: View {
         .alert("Lock In", isPresented: Binding(get: { store.message != nil }, set: { if !$0 { store.message = nil } })) {
             Button("OK") { store.message = nil }
         } message: { Text(store.message ?? "") }
+    }
+    private var statusText: String {
+        switch store.workLog?.phase {
+        case .work: return "Focusing"
+        case .break: return "On a break"
+        case .pause: return "Paused"
+        case nil: return "Your time, protected"
+        }
     }
     private var subtitle: String {
         switch store.page {
@@ -112,18 +120,17 @@ struct SessionTaskRow: View {
     @State private var editing = false
     @State private var title = ""
     @State private var link = ""
-    private var edited: Todo { var copy = todo; copy.title = title; copy.linearURL = link.trimmingCharacters(in: .whitespacesAndNewlines); return copy }
-    private var canSave: Bool { !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && edited.validLink }
+    private var canSave: Bool { todo.with(title: title, linearURL: link).hasTitle && Todo.isValidLink(link) }
     var body: some View {
         if editing {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     TextField("Task", text: $title).textFieldStyle(.lockIn()).onSubmit(save)
-                    TextField("Linear issue URL (optional)", text: $link).textFieldStyle(.lockIn(icon: "link", invalid: !edited.validLink)).onSubmit(save)
+                    LinearLinkField(link: $link, onSubmit: save)
                     Button("Cancel") { editing = false }.keyboardShortcut(.cancelAction)
                     Button("Save", action: save).buttonStyle(.borderedProminent).disabled(!canSave)
                 }
-                if !edited.validLink { Text("Use an https://linear.app issue URL.").font(.caption).foregroundStyle(.red) }
+                LinkRequirementNote(link: link)
             }
         } else {
             HStack {
@@ -144,16 +151,15 @@ struct AddSessionTask: View {
     @EnvironmentObject var store: Store
     @State private var title = ""
     @State private var link = ""
-    private var draft: Todo { var todo = Todo(title: title); todo.linearURL = link.trimmingCharacters(in: .whitespacesAndNewlines); return todo }
-    private var canAdd: Bool { !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && draft.validLink }
+    private var canAdd: Bool { Todo().with(title: title, linearURL: link).hasTitle && Todo.isValidLink(link) }
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 TextField("Add a task…", text: $title).textFieldStyle(.lockIn(icon: "plus")).onSubmit(add)
-                TextField("Linear issue URL (optional)", text: $link).textFieldStyle(.lockIn(icon: "link", invalid: !draft.validLink)).onSubmit(add)
+                LinearLinkField(link: $link, onSubmit: add)
                 Button("Add", systemImage: "plus", action: add).disabled(!canAdd)
             }
-            if !draft.validLink { Text("Use an https://linear.app issue URL.").font(.caption).foregroundStyle(.red) }
+            LinkRequirementNote(link: link)
         }
     }
     private func add() {
@@ -190,17 +196,6 @@ struct SessionButtons: View {
                 }.buttonStyle(.borderedProminent)
             }
         }.controlSize(.large)
-    }
-}
-
-struct Metric: View {
-    let value: String; let label: String; let icon: String
-    var body: some View {
-        Card {
-            Image(systemName: icon).foregroundStyle(accent)
-            Text(value).font(.system(size: 24, weight: .medium, design: .rounded))
-            Text(label).font(.caption).foregroundStyle(.secondary)
-        }
     }
 }
 

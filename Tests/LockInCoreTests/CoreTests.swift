@@ -22,31 +22,6 @@ final class CoreTests: XCTestCase {
         XCTAssertFalse(WebsiteRule.shouldBlock(URL(string: "about:blank")!, rules: [], mode: .allow))
         XCTAssertFalse(WebsiteRule.shouldBlock(URL(string: "file:///tmp/blocked.html")!, rules: [], mode: .allow))
     }
-    func testBreakResumesRemainingWork() {
-        let start = Date(timeIntervalSince1970: 1000)
-        var session = FocusSession(profile: Profile(), mode: .timer, locked: false, now: start, duration: 600)
-        session.beginBreak(at: start.addingTimeInterval(120))
-        session.resume(at: start.addingTimeInterval(180))
-        XCTAssertFalse(session.isBreak)
-        XCTAssertEqual(session.remaining(at: start.addingTimeInterval(180)), 480)
-        XCTAssertEqual(session.usedBreakSeconds, 60)
-    }
-    func testUntimedBreakKeepsUntimedSession() {
-        let start = Date(timeIntervalSince1970: 1000)
-        var session = FocusSession(profile: Profile(), mode: .untimed, locked: false, now: start)
-        session.beginBreak(at: start.addingTimeInterval(100))
-        session.resume(at: start.addingTimeInterval(200))
-        XCTAssertNil(session.deadline)
-    }
-    func testBreakAllowanceAndReset() {
-        let start = Date(timeIntervalSince1970: 1000)
-        var session = FocusSession(profile: Profile(), mode: .timer, locked: false, now: start)
-        session.usedBreakSeconds = 590
-        XCTAssertEqual(session.availableBreak(at: start.addingTimeInterval(60)), 10)
-        session.usedBreakSeconds = 700
-        XCTAssertEqual(session.availableBreak(at: start.addingTimeInterval(60)), 0)
-        XCTAssertEqual(session.availableBreak(at: start.addingTimeInterval(3600)), 600)
-    }
     func testScheduleWindowAndWeekdays() {
         var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         let monday = calendar.date(from: DateComponents(year: 2026, month: 10, day: 26, hour: 9, minute: 15))!
@@ -59,10 +34,10 @@ final class CoreTests: XCTestCase {
     }
     func testStateRoundTripRestoresLockedSession() throws {
         var state = SavedState()
-        state.session = FocusSession(profile: state.profiles[0], mode: .timer, locked: true)
+        state.session = FocusSession(profile: state.profiles[0], locked: true, startedAt: Date(timeIntervalSince1970: 1000))
         let data = try JSONEncoder().encode(state)
         let restored = try JSONDecoder().decode(SavedState.self, from: data)
-        XCTAssertEqual(restored.session?.deadline, state.session?.deadline)
+        XCTAssertEqual(restored.session?.startedAt, state.session?.startedAt)
         XCTAssertTrue(restored.session!.locked)
         XCTAssertEqual(restored.profiles, state.profiles)
     }
@@ -73,5 +48,22 @@ final class CoreTests: XCTestCase {
         let parsed = URLComponents(string: destination)
         XCTAssertEqual(parsed?.queryItems?.count, 1)
         XCTAssertEqual(parsed?.queryItems?.first?.value, original)
+    }
+    /// State written before the Pomodoro-era fields were removed must still load, including a running session.
+    func testDecodesStateWrittenByOlderBuilds() throws {
+        let profileID = UUID().uuidString
+        let profile = """
+        {"id":"\(profileID)","name":"Focus","symbol":"mountain.2","websites":["reddit.com"],"applications":[],"blockingMode":"Block list",
+         "workMinutes":50,"breakMinutes":10,"breakAllowanceMinutes":10,"breakWindowHours":1,"hooks":{}}
+        """
+        let json = """
+        {"profiles":[\(profile)],"selectedProfileID":"\(profileID)","schedules":[],"records":[],"firedSchedules":{},
+         "session":{"profile":\(profile),"mode":"Timer","locked":true,"startedAt":1000,"phaseStartedAt":1000,"deadline":4600,
+                    "isBreak":false,"round":1,"breakWindowStartedAt":1000,"usedBreakSeconds":0}}
+        """
+        let state = try JSONDecoder().decode(SavedState.self, from: Data(json.utf8))
+        XCTAssertEqual(state.profiles.first?.websites, ["reddit.com"])
+        XCTAssertEqual(state.session?.locked, true)
+        XCTAssertEqual(state.session?.startedAt, Date(timeIntervalSinceReferenceDate: 1000))
     }
 }

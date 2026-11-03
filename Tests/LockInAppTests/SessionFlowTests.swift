@@ -3,10 +3,15 @@ import LockInCore
 @testable import LockIn
 
 final class SessionFlowTests: XCTestCase {
+    private var directory: URL!
+    override func setUp() { directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString) }
+    override func tearDown() { try? FileManager.default.removeItem(at: directory) }
+    /// A store backed by this test's temporary directory; calling it again simulates relaunching the app.
+    @MainActor private func makeStore() -> Store {
+        Store(stateFile: directory.appendingPathComponent("preferences.json"), journalDirectory: directory, runTimer: false, enforceBlocking: false)
+    }
     @MainActor func testPlanPauseCompletionReviewAndDiskJournal() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let store = Store(stateFile: directory.appendingPathComponent("preferences.json"), journalDirectory: directory, runTimer: false, enforceBlocking: false)
+        let store = makeStore()
         store.journal.draft = [Todo(title: "Test TODO")]
         store.journal.hours = 1
         store.start()
@@ -38,15 +43,13 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertTrue(yaml.contains("finished_naturally: true"))
         XCTAssertTrue(yaml.contains("reviewed: true"))
         XCTAssertTrue(yaml.contains("roll_into_next_session: true"))
-        let restored = Store(stateFile: directory.appendingPathComponent("preferences.json"), journalDirectory: directory, runTimer: false, enforceBlocking: false)
+        let restored = makeStore()
         XCTAssertEqual(restored.journal.draft[0].title, "Finish next time")
         XCTAssertEqual(restored.journal.sessions.count, 1)
         XCTAssertFalse(restored.active)
     }
     @MainActor func testStartNewDayEndsSessionEarlyAndAllowsANewOne() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let store = Store(stateFile: directory.appendingPathComponent("preferences.json"), journalDirectory: directory, runTimer: false, enforceBlocking: false)
+        let store = makeStore()
         store.journal.draft = [Todo(title: "Yesterday's task")]
         store.journal.hours = 4
         store.start()
@@ -70,9 +73,7 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertNotEqual(store.workLog?.id, id)
     }
     @MainActor func testStartNewDayIsBlockedInHardcoreMode() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let store = Store(stateFile: directory.appendingPathComponent("preferences.json"), journalDirectory: directory, runTimer: false, enforceBlocking: false)
+        let store = makeStore()
         store.journal.draft = [Todo(title: "Locked")]
         store.lockSession = true
         store.start()
@@ -81,9 +82,7 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertNotNil(store.workLog)
     }
     @MainActor func testTasksCanBeAddedMidSession() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let store = Store(stateFile: directory.appendingPathComponent("preferences.json"), journalDirectory: directory, runTimer: false, enforceBlocking: false)
+        let store = makeStore()
         XCTAssertFalse(store.addTask(title: "No session yet"))
         store.journal.draft = [Todo(title: "Planned")]
         store.start()
@@ -97,13 +96,11 @@ final class SessionFlowTests: XCTestCase {
         let yaml = try String(contentsOf: directory.appendingPathComponent("session-\(id).yaml"), encoding: .utf8)
         XCTAssertTrue(yaml.contains("title: \"Surprise bug\""))
         XCTAssertTrue(yaml.contains("linear.app\\/acme\\/issue\\/ABC-1"), "JSON-quoted YAML escapes slashes")
-        let restored = Store(stateFile: directory.appendingPathComponent("preferences.json"), journalDirectory: directory, runTimer: false, enforceBlocking: false)
+        let restored = makeStore()
         XCTAssertEqual(restored.workLog?.todos.count, 3)
     }
     @MainActor func testTasksCanBeEditedMidSession() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let store = Store(stateFile: directory.appendingPathComponent("preferences.json"), journalDirectory: directory, runTimer: false, enforceBlocking: false)
+        let store = makeStore()
         store.journal.draft = [Todo(title: "Typo taks")]
         store.start()
         let task = try XCTUnwrap(store.workLog?.todos.first)
@@ -116,16 +113,11 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertEqual(edited.id, task.id, "editing keeps the task's identity")
         XCTAssertEqual(edited.title, "Fixed task")
         XCTAssertEqual(edited.linearURL, "https://linear.app/acme/issue/ABC-2")
-        let restored = Store(stateFile: directory.appendingPathComponent("preferences.json"), journalDirectory: directory, runTimer: false, enforceBlocking: false)
+        let restored = makeStore()
         XCTAssertEqual(restored.workLog?.todos.first?.title, "Fixed task")
     }
-    @MainActor private func makeStore(_ directory: URL) -> Store {
-        Store(stateFile: directory.appendingPathComponent("preferences.json"), journalDirectory: directory, runTimer: false, enforceBlocking: false)
-    }
     @MainActor func testUpdatePausesQuitsAndResumesOnRelaunch() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let store = makeStore(directory)
+        let store = makeStore()
         var quits = 0; store.terminate = { quits += 1 }
         store.journal.draft = [Todo(title: "Work")]
         store.start()
@@ -133,15 +125,13 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertEqual(quits, 1)
         XCTAssertEqual(store.workLog?.phase, .pause)
         XCTAssertEqual(store.workLog?.intervals.last?.reason, "Updating Lock In")
-        let relaunched = makeStore(directory)
+        let relaunched = makeStore()
         XCTAssertEqual(relaunched.workLog?.phase, .work)
         XCTAssertNil(relaunched.journal.resumeAfterUpdateID)
         XCTAssertEqual(relaunched.workLog?.intervals.filter { $0.kind == .pause }.count, 1)
     }
     @MainActor func testUpdateLeavesYourOwnPauseAlone() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let store = makeStore(directory)
+        let store = makeStore()
         var quits = 0; store.terminate = { quits += 1 }
         store.journal.draft = [Todo(title: "Work")]
         store.start()
@@ -149,14 +139,12 @@ final class SessionFlowTests: XCTestCase {
         store.quitForUpdate()
         XCTAssertEqual(quits, 1)
         XCTAssertNil(store.journal.resumeAfterUpdateID)
-        let relaunched = makeStore(directory)
+        let relaunched = makeStore()
         XCTAssertEqual(relaunched.workLog?.phase, .pause)
         XCTAssertEqual(relaunched.workLog?.intervals.last?.reason, "Lunch")
     }
     @MainActor func testUpdateIsRefusedInHardcoreMode() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let store = makeStore(directory)
+        let store = makeStore()
         var quits = 0; store.terminate = { quits += 1 }
         store.journal.draft = [Todo(title: "Work")]
         store.lockSession = true

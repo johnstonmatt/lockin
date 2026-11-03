@@ -54,11 +54,10 @@ import AppKit
         }
         if let store, let log = store.workLog, log.phase != .pause {
             store.showPause = true
-            NSApp.activate(ignoringOtherApps: true)
-            NSApp.windows.first { $0.identifier?.rawValue == "main" }?.makeKeyAndOrderFront(nil)
+            NSApp.showMainWindow()
             return .terminateCancel
         }
-        store?.persistJournal(); store?.save(); return .terminateNow
+        store?.saveAll(); return .terminateNow
     }
 }
 

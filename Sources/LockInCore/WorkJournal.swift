@@ -8,10 +8,21 @@ public struct Todo: Identifiable, Codable, Equatable, Sendable {
     public var rollForward = false
     public var sourceTodoID: UUID?
     public init(title: String = "") { self.title = title }
-    public var validLink: Bool {
-        if linearURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
-        guard let url = URL(string: linearURL), url.scheme == "https", let host = url.host else { return false }
+    public static let linkRequirement = "Use an https://linear.app issue URL."
+    /// Blank, or an https link on linear.app.
+    public static func isValidLink(_ text: String) -> Bool {
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
+        guard let url = URL(string: text), url.scheme == "https", let host = url.host else { return false }
         return host == "linear.app" || host.hasSuffix(".linear.app")
+    }
+    public var validLink: Bool { Self.isValidLink(linearURL) }
+    public var hasTitle: Bool { !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    /// A copy with user-entered fields applied and trimmed; identity and lineage are kept.
+    public func with(title: String, linearURL: String) -> Todo {
+        var copy = self
+        copy.title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        copy.linearURL = linearURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        return copy
     }
 }
 public enum WorkPhase: String, Codable, CaseIterable, Sendable { case work, `break`, pause }

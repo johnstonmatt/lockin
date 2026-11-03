@@ -133,7 +133,4 @@ struct PreferencesView: View {
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
-    private func setting(_ key: WritableKeyPath<Profile, Int>) -> Binding<Int> {
-        Binding(get: { store.profile[keyPath: key] }, set: { value in store.updateProfile { $0[keyPath: key] = value } })
-    }
 }

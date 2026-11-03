@@ -1,8 +1,5 @@
 import Foundation
 
-public enum SessionMode: String, Codable, CaseIterable, Sendable {
-    case timer = "Timer", pomodoro = "Pomodoro", untimed = "Open ended"
-}
 public enum BlockingMode: String, Codable, CaseIterable, Sendable {
     case block = "Block list", allow = "Allow list"
 }
@@ -13,10 +10,6 @@ public struct Profile: Identifiable, Codable, Equatable, Sendable {
     public var websites = ["reddit.com", "youtube.com", "x.com", "instagram.com", "facebook.com"]
     public var applications: [BlockedApp] = []
     public var blockingMode: BlockingMode = .block
-    public var workMinutes = 50
-    public var breakMinutes = 10
-    public var breakAllowanceMinutes = 10
-    public var breakWindowHours = 1
     public var hooks: [String: String] = [:]
     public var passwordSalt: String?
     public var passwordHash: String?
@@ -58,40 +51,15 @@ public struct FocusRecord: Identifiable, Codable, Sendable {
         self.profileName = profileName; self.start = start; self.end = end; self.completed = completed
     }
 }
+/// Enforcement settings for the running session. Phase and timing live in the session's `WorkLog`.
+/// Keys written by older builds (mode, deadline, Pomodoro counters) are ignored when decoding.
 public struct FocusSession: Codable, Sendable {
+    /// A snapshot, so profile edits made during a session don't change what's being enforced.
     public var profile: Profile
-    public var mode: SessionMode
     public var locked: Bool
     public var startedAt: Date
-    public var phaseStartedAt: Date
-    public var deadline: Date?
-    public var isBreak = false
-    public var round = 1
-    public var remainingWork: TimeInterval?
-    public var breakWindowStartedAt: Date
-    public var usedBreakSeconds: TimeInterval = 0
-    public init(profile: Profile, mode: SessionMode, locked: Bool, now: Date = Date(), duration: TimeInterval? = nil) {
-        self.profile = profile; self.mode = mode; self.locked = locked
-        startedAt = now; phaseStartedAt = now; breakWindowStartedAt = now
-        deadline = mode == .untimed ? nil : now.addingTimeInterval(duration ?? Double(profile.workMinutes * 60))
-    }
-    public func remaining(at date: Date) -> TimeInterval { max(0, deadline?.timeIntervalSince(date) ?? date.timeIntervalSince(phaseStartedAt)) }
-    public mutating func beginBreak(at date: Date) {
-        remainingWork = deadline.map { max(0, $0.timeIntervalSince(date)) }
-        isBreak = true; phaseStartedAt = date
-        deadline = date.addingTimeInterval(Double(profile.breakMinutes * 60))
-    }
-    public mutating func resume(at date: Date) {
-        usedBreakSeconds += max(0, date.timeIntervalSince(phaseStartedAt))
-        isBreak = false; phaseStartedAt = date
-        deadline = mode == .untimed ? nil : date.addingTimeInterval(remainingWork ?? Double(profile.workMinutes * 60))
-        remainingWork = nil
-    }
-    public mutating func availableBreak(at date: Date) -> TimeInterval {
-        if date.timeIntervalSince(breakWindowStartedAt) >= Double(profile.breakWindowHours * 3600) {
-            breakWindowStartedAt = date; usedBreakSeconds = 0
-        }
-        return max(0, Double(profile.breakAllowanceMinutes * 60) - usedBreakSeconds)
+    public init(profile: Profile, locked: Bool, startedAt: Date) {
+        self.profile = profile; self.locked = locked; self.startedAt = startedAt
     }
 }
 public struct SavedState: Codable {

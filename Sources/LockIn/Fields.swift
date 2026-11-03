@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import LockInCore
 
 let accent = Color(red: 0.25, green: 0.68, blue: 0.53)
 
@@ -61,5 +62,24 @@ extension View {
     /// areas (background, cards, labels) ends editing; buttons and fields inside still get their own clicks.
     func clearsFieldFocusOnClick() -> some View {
         contentShape(Rectangle()).onTapGesture { NSApp.keyWindow?.makeFirstResponder(nil) }
+    }
+}
+
+/// The optional Linear issue link field used wherever a task is entered.
+struct LinearLinkField: View {
+    @Binding var link: String
+    var onSubmit: () -> Void = {}
+    var body: some View {
+        TextField("Linear issue URL (optional)", text: $link)
+            .textFieldStyle(.lockIn(icon: "link", invalid: !Todo.isValidLink(link)))
+            .onSubmit(onSubmit)
+    }
+}
+
+/// Shown under a task's fields while its link is not a Linear issue URL.
+struct LinkRequirementNote: View {
+    let link: String
+    var body: some View {
+        if !Todo.isValidLink(link) { Text(Todo.linkRequirement).font(.caption).foregroundStyle(.red) }
     }
 }
