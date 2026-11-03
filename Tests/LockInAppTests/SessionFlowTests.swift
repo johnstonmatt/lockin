@@ -207,4 +207,16 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "edited elsewhere", "an unchanged session is skipped")
         XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("session-\(try XCTUnwrap(store.workLog?.id)).yaml").path))
     }
+    @MainActor func testTasksCanBeTickedOffMidSession() throws {
+        let store = makeStore()
+        store.journal.draft = [Todo(title: "Ship")]
+        store.start()
+        let task = try XCTUnwrap(store.workLog?.todos.first)
+        XCTAssertFalse(store.setTaskCompleted(id: UUID(), true))
+        XCTAssertTrue(store.setTaskCompleted(id: task.id, true))
+        XCTAssertEqual(store.workLog?.todos.first?.completed, true)
+        XCTAssertEqual(makeStore().workLog?.todos.first?.completed, true, "the tick is saved")
+        XCTAssertTrue(store.setTaskCompleted(id: task.id, false))
+        XCTAssertEqual(store.workLog?.todos.first?.completed, false)
+    }
 }

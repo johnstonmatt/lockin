@@ -167,6 +167,14 @@ import LockInCore
             todos[index] = todos[index].with(title: title, link: link); return index
         }
     }
+    /// Marks a task in the running session done or not done.
+    @discardableResult func setTaskCompleted(id: UUID, _ completed: Bool) -> Bool {
+        guard let index = activeLogIndex else { return false }
+        var todos = journal.sessions[index].todos
+        guard let task = todos.firstIndex(where: { $0.id == id }) else { return false }
+        todos[task].completed = completed
+        return replaceTasks(todos, inSession: index)
+    }
     /// Removes a task from the running session. Its record goes too: it won't appear in the review or journal.
     @discardableResult func deleteTask(id: UUID) -> Bool {
         guard let index = activeLogIndex, journal.sessions[index].todos.contains(where: { $0.id == id }) else { return false }
