@@ -1,0 +1,45 @@
+<style>
+#li-insights .panel{--li-bg:light-dark(#f5f6f4,#242725);--li-card:light-dark(#fff,#191c1a);--li-ink:light-dark(#25342d,#e8efe9);--li-sub:light-dark(#607068,#aab8ae);--li-line:light-dark(#dae1db,#3a443e);--li-work:light-dark(#288568,#55bb98);--li-break:light-dark(#498cb7,#75b6d8);--li-pause:light-dark(#bc823d,#d9a361);background:var(--li-bg);color:var(--li-ink);font:14px -apple-system,BlinkMacSystemFont,sans-serif;padding:24px;border-radius:14px;min-height:500px;box-sizing:border-box}
+#li-insights .top{display:flex;gap:16px;align-items:center;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap}#li-insights h2{font-size:24px;font-weight:500;margin:0}#li-insights h3{font-size:16px;font-weight:500;margin:0 0 16px}#li-insights .muted{color:var(--li-sub);font-size:12px}#li-insights .surface{background:var(--li-card);padding:20px;border-radius:12px;margin-bottom:16px}#li-insights .metrics{display:flex;gap:32px;flex-wrap:wrap;margin-bottom:26px}#li-insights .metric strong{display:block;font-size:25px;font-weight:500;margin-bottom:4px}#li-insights .track{display:flex;height:40px;gap:2px;margin:14px 0 8px}#li-insights .track button{border:0;border-radius:4px;min-width:12px;padding:0;background:var(--li-work)}#li-insights .track .break{background:var(--li-break)}#li-insights .track .pause{background:var(--li-pause)}#li-insights .axis{display:flex;justify-content:space-between;color:var(--li-sub);font-size:12px}#li-insights .legend{display:flex;gap:18px;flex-wrap:wrap;margin-top:20px;font-size:12px}#li-insights .swatch{display:inline-block;width:9px;height:9px;background:var(--li-work);border-radius:2px;margin-right:6px}#li-insights .detail{min-height:38px;margin-top:16px;font-size:13px}#li-insights .row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--li-line)}#li-insights .row:last-child{border:0}#li-insights .weekrow{display:grid;grid-template-columns:38px 1fr 84px;align-items:center;gap:12px;margin:24px 0}#li-insights .bar{height:16px;background:var(--li-line);position:relative;border-radius:3px}#li-insights .fill{height:100%;background:var(--li-work);border-radius:3px}#li-insights .target{position:absolute;top:-5px;height:26px;width:2px;background:var(--li-ink)}#li-insights .journey{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0 20px}#li-insights .node{background:var(--li-line);padding:8px 12px;border-radius:6px;font-size:12px}#li-insights .done{background:var(--li-work);color:light-dark(#fff,#13271f)}#li-insights .footer{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--li-sub)}
+@media(max-width:450px){#li-insights .panel{padding:16px;min-height:590px}#li-insights .surface{padding:14px}#li-insights .metrics{gap:18px}#li-insights .metric strong{font-size:21px}#li-insights .weekrow{grid-template-columns:30px 1fr 72px;gap:8px}}
+</style>
+<div id="li-insights" class="viz-carousel viz-dotted-background" aria-label="Lock In Insights proposals">
+<section data-variant="Day story">
+<div class="panel">
+<div class="top"><h2>Insights · Today</h2><span class="muted">Friday · illustrative data</span></div>
+<div class="metrics"><div class="metric"><strong>3h 30m / 4h</strong><span class="muted">Work / planned</span></div><div class="metric"><strong>2h</strong><span class="muted">Longest work stretch</span></div><div class="metric"><strong>3 of 5</strong><span class="muted">Tasks completed</span></div></div>
+<div class="surface"><h3>How your day unfolded</h3>
+<div class="track" aria-label="9 to 11 work, 11 to 11:10 break, 11:10 to 11:30 pause, 11:30 to 13 work">
+<button class="cursor-interaction" style="flex:120" aria-label="9 to 11, 2 hours worked" data-detail="09:00–11:00 · Work · 2 hours · 10 minutes of break earned"></button><button class="break cursor-interaction" style="flex:10" aria-label="11 to 11:10, 10 minute earned break" data-detail="11:00–11:10 · Earned break · 10 minutes spent"></button><button class="pause cursor-interaction" style="flex:20" aria-label="11:10 to 11:30, pause for a call" data-detail="11:10–11:30 · Pause · “Call with the design team”"></button><button class="cursor-interaction" style="flex:90" aria-label="11:30 to 13, 90 minutes worked" data-detail="11:30–13:00 · Work · 90 minutes · 7½ minutes of break earned"></button>
+</div><div class="axis"><span>09:00</span><span>10:00</span><span>11:00</span><span>12:00</span><span>13:00</span></div>
+<div class="legend"><span><i class="swatch"></i>Work · 3h 30m</span><span><i class="swatch" style="background:var(--li-break)"></i>Break · 10m</span><span><i class="swatch" style="background:var(--li-pause)"></i>Pause · 20m</span></div>
+<div class="detail" aria-live="polite">11:10–11:30 · Pause · “Call with the design team”</div></div>
+<div class="surface"><h3>Earned break ledger</h3><div class="row"><span>17½m earned − 10m used</span><strong>7½m left</strong></div></div>
+<div class="footer"><span>Click a time segment for details</span><span>Session 2 of 2</span></div>
+</div></section>
+<section data-variant="Weekly rhythm" hidden>
+<div class="panel"><div class="top"><h2>Insights · This week</h2><span class="muted">Mon–Fri · illustrative data</span></div>
+<div class="metrics"><div class="metric"><strong>17h 30m / 19h</strong><span class="muted">Worked / planned</span></div><div class="metric"><strong>2 of 5 days</strong><span class="muted">Work target reached</span></div></div>
+<div class="surface"><h3>Work against your own plan</h3>
+<div class="weekrow"><span>Mon</span><div class="bar"><div class="fill" style="width:70%"></div><i class="target" style="left:80%"></i></div><span>3½h / 4h</span></div>
+<div class="weekrow"><span>Tue</span><div class="bar"><div class="fill" style="width:80%"></div><i class="target" style="left:80%"></i></div><span>4h / 4h</span></div>
+<div class="weekrow"><span>Wed</span><div class="bar"><div class="fill" style="width:50%"></div><i class="target" style="left:60%"></i></div><span>2½h / 3h</span></div>
+<div class="weekrow"><span>Thu</span><div class="bar"><div class="fill" style="width:80%"></div><i class="target" style="left:80%"></i></div><span>4h / 4h</span></div>
+<div class="weekrow"><span>Fri</span><div class="bar"><div class="fill" style="width:70%"></div><i class="target" style="left:80%"></i></div><span>3½h / 4h</span></div>
+<div class="axis"><span>0 hours</span><span>5 hours</span></div><div class="legend"><span><i class="swatch"></i>Actual work</span><span>│ Planned target</span></div></div>
+<div class="footer"><span>Unplanned days stay blank</span><span>Daily targets stay visible</span></div>
+</div></section>
+<section data-variant="Task journeys" hidden>
+<div class="panel"><div class="top"><h2>Insights · Task journeys</h2><span class="muted">This week · illustrative data</span></div>
+<div class="metrics"><div class="metric"><strong>3 completed</strong><span class="muted">From five planned tasks</span></div><div class="metric"><strong>2 carrying forward</strong><span class="muted">Selected at review</span></div></div>
+<div class="surface"><h3>Where work carries over</h3>
+<div>Fix YouTube blocking <span class="muted">· APP-42</span></div><div class="journey"><span class="node">Mon · planned</span><span>→</span><span class="node">Tue · carried</span><span>→</span><span class="node done">Wed · done</span></div>
+<div>Insights redesign <span class="muted">· APP-48</span></div><div class="journey"><span class="node">Thu · planned</span><span>→</span><span class="node">Fri · carried</span><span>→</span><span class="node">Next session</span></div>
+<div>Journal export</div><div class="journey"><span class="node">Fri · planned</span><span>→</span><span class="node">Next session</span></div>
+<div class="row"><span>Pause validation</span><span>✓ Done Tuesday</span></div><div class="row"><span>Session review</span><span>✓ Done Thursday</span></div>
+</div><div class="footer"><span>History follows tasks across sessions</span><span>No inferred time per task</span></div>
+</div></section>
+</div>
+<script>
+(function(){const root=document.getElementById('li-insights');root.querySelectorAll('[data-detail]').forEach(button=>button.addEventListener('click',()=>{root.querySelector('.detail').textContent=button.dataset.detail;}));})();
+</script>
