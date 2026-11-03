@@ -80,4 +80,24 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertTrue(store.active)
         XCTAssertNotNil(store.workLog)
     }
+    @MainActor func testTasksCanBeAddedMidSession() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = Store(stateFile: directory.appendingPathComponent("preferences.json"), journalDirectory: directory, runTimer: false, enforceBlocking: false)
+        XCTAssertFalse(store.addTask(title: "No session yet"))
+        store.journal.draft = [Todo(title: "Planned")]
+        store.start()
+        let id = try XCTUnwrap(store.workLog?.id)
+        XCTAssertFalse(store.addTask(title: "   "))
+        XCTAssertFalse(store.addTask(title: "Bad link", linearURL: "http://example.com"))
+        XCTAssertTrue(store.addTask(title: "  Surprise bug  ", linearURL: "https://linear.app/acme/issue/ABC-1"))
+        store.pause(reason: "Lunch")
+        XCTAssertTrue(store.addTask(title: "Added while paused"))
+        XCTAssertEqual(store.workLog?.todos.map(\.title), ["Planned", "Surprise bug", "Added while paused"])
+        let yaml = try String(contentsOf: directory.appendingPathComponent("session-\(id).yaml"), encoding: .utf8)
+        XCTAssertTrue(yaml.contains("title: \"Surprise bug\""))
+        XCTAssertTrue(yaml.contains("linear.app\\/acme\\/issue\\/ABC-1"), "JSON-quoted YAML escapes slashes")
+        let restored = Store(stateFile: directory.appendingPathComponent("preferences.json"), journalDirectory: directory, runTimer: false, enforceBlocking: false)
+        XCTAssertEqual(restored.workLog?.todos.count, 3)
+    }
 }

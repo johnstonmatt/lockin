@@ -90,7 +90,7 @@ struct FocusView: View {
                     Spacer(); Text("5 min earned per hour worked").font(.caption).foregroundStyle(.secondary)
                 }
                 if log.phase == .pause { Text(log.intervals.last?.reason ?? "").foregroundStyle(.secondary) }
-                SessionButtons()
+                SessionButtons(showStartNewDay: true)
             }
             Card {
                 Text("This session’s tasks").font(.headline)
@@ -99,6 +99,7 @@ struct FocusView: View {
                         if let url = URL(string: todo.linearURL), todo.validLink { Link("Linear ↗", destination: url) }
                     }
                 }
+                AddSessionTask()
                 Text("You can edit and carry tasks forward in the completion review.").font(.caption).foregroundStyle(.secondary)
             }
         } else if store.journal.pendingReviewID != nil {
@@ -110,8 +111,32 @@ struct FocusView: View {
     }
 }
 
+struct AddSessionTask: View {
+    @EnvironmentObject var store: Store
+    @State private var title = ""
+    @State private var link = ""
+    private var draft: Todo { var todo = Todo(title: title); todo.linearURL = link.trimmingCharacters(in: .whitespacesAndNewlines); return todo }
+    private var canAdd: Bool { !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && draft.validLink }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                TextField("Add a task…", text: $title).textFieldStyle(.roundedBorder).onSubmit(add)
+                TextField("Linear issue URL (optional)", text: $link).textFieldStyle(.roundedBorder).onSubmit(add)
+                Button("Add", systemImage: "plus", action: add).disabled(!canAdd)
+            }
+            if !draft.validLink { Text("Use an https://linear.app issue URL.").font(.caption).foregroundStyle(.red) }
+        }
+    }
+    private func add() {
+        guard canAdd, store.addTask(title: title, linearURL: link) else { return }
+        title = ""; link = ""
+    }
+}
+
 struct SessionButtons: View {
     @EnvironmentObject var store: Store
+    /// Only the main window offers ending a session early; the menu bar panel keeps to work/break/pause.
+    var showStartNewDay = false
     @Environment(\.openWindow) private var openWindow
     var body: some View {
         HStack(spacing: 12) {
@@ -123,12 +148,12 @@ struct SessionButtons: View {
                     Button("Resume work") { store.resume() }.buttonStyle(.borderedProminent)
                     if log.phase == .break { Button("Pause instead…") { store.showPause = true; openWindow(id: "main") } }
                 }
-                Spacer()
-                Button("Start new day…", systemImage: "sunrise") {
-                    store.page = .focus; store.showEndSession = true; openWindow(id: "main"); NSApp.activate(ignoringOtherApps: true)
+                if showStartNewDay {
+                    Spacer()
+                    Button("Start new day…", systemImage: "sunrise") { store.showEndSession = true }
+                        .disabled(store.locked)
+                        .help(store.locked ? "Hardcore Mode is active. The session must reach its target." : "End this session early, review it, and plan a new one.")
                 }
-                .disabled(store.locked)
-                .help(store.locked ? "Hardcore Mode is active. The session must reach its target." : "End this session early, review it, and plan a new one.")
             } else {
                 Button(store.journal.pendingReviewID == nil ? "Plan your session" : "Review your day") {
                     store.page = .focus; openWindow(id: "main"); NSApp.activate(ignoringOtherApps: true)

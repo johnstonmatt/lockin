@@ -149,6 +149,17 @@ import LockInCore
         journal.sessions[index].transition(to: .work, at: Date())
         syncSession(); runHook("resume"); persistJournal(); save()
     }
+    /// Adds a task to the running session. Returns false (with a message) if the title is blank or the link is invalid.
+    @discardableResult func addTask(title: String, linearURL: String = "") -> Bool {
+        guard let index = activeLogIndex else { return false }
+        var todo = Todo(title: title.trimmingCharacters(in: .whitespacesAndNewlines))
+        todo.linearURL = linearURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !todo.title.isEmpty else { return false }
+        guard todo.validLink else { message = "Use an https://linear.app issue URL."; return false }
+        journal.sessions[index].todos.append(todo)
+        guard persistJournal() else { journal.sessions[index].todos.removeLast(); return false }
+        return true
+    }
     /// Closes the open session before its target so a fresh one can be planned (e.g. the next morning).
     func endSession(reason: String) {
         guard !locked, let index = activeLogIndex else { return }

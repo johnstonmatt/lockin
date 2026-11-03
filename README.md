@@ -25,6 +25,7 @@ Open Lock In, enter your TODOs (each can have an optional HTTPS Linear issue lin
 - Taking a break spends the earned balance. Returning early preserves unused time; reaching zero resumes work automatically. Breaks cannot accrue more credit.
 - Pausing requires a nonblank written justification. Pauses neither spend nor earn break credit. Quitting during work or a break opens that same justification prompt.
 - Breaks and pauses do not count toward the work target. The session finishes naturally only after the target work time is reached.
+- Tasks can be added to a running session (including during a break or pause) from the session’s task list. They’re saved to the session journal immediately and appear in the review like planned tasks.
 - **Start new day…** ends the current session early (for example, one left paused overnight). It asks for a reason, prefilled as “Starting a new day”, and saves it as `end_reason`. The session is recorded as `finished_naturally: false` and goes to the usual review, so you can roll tasks into a new plan. Not available in Hardcore Mode.
 - Completion opens a day timeline, including all work, break and pause intervals overlapping that calendar day. Edit task titles/links, mark TODOs complete, and select **Next session** separately for each task. Saving the review creates a new draft containing only selected tasks, with source-task IDs retained for lineage.
 - Earned credit is scoped to each session and does not roll forward. Task rollover is explicit, including for completed tasks.
