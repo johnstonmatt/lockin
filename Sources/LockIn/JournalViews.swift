@@ -11,10 +11,10 @@ struct TodoEditor: View {
                 TextField("What are you working on?", text: $todo.title).textFieldStyle(.lockIn())
             }
             HStack {
-                LinearLinkField(link: $todo.linearURL)
+                TaskLinkField(link: $todo.link)
                 if review { Toggle("Next session", isOn: $todo.rollForward).toggleStyle(.checkbox) }
             }
-            LinkRequirementNote(link: todo.linearURL)
+            LinkRequirementNote(link: todo.link)
         }.padding(.vertical, 6)
     }
 }
@@ -27,7 +27,7 @@ struct PlannerView: View {
             ForEach($store.journal.draft) { $todo in
                 HStack(alignment: .top) {
                     TodoEditor(todo: $todo)
-                    Button { store.journal.draft.removeAll { $0.id == todo.id }; store.persistJournal() } label: { Image(systemName: "minus.circle") }.buttonStyle(.plain).padding(.top, 12).accessibilityLabel("Remove task")
+                    Button { store.journal.draft.removeAll { $0.id == todo.id }; store.persistJournal() } label: { Image(systemName: "minus.circle") }.buttonStyle(.pointer(.plain)).padding(.top, 12).accessibilityLabel("Remove task")
                 }
             }
             Button("Add task", systemImage: "plus") { store.journal.draft.append(Todo()); store.persistJournal() }
@@ -41,7 +41,7 @@ struct PlannerView: View {
             }
             Text("The timer counts work only. Breaks and justified pauses extend the session. Earned break time belongs to this session and does not carry forward.").font(.caption).foregroundStyle(.secondary)
             Toggle("Hardcore Mode", isOn: $store.lockSession).toggleStyle(.checkbox)
-            Button("Start session", systemImage: "play.fill") { store.start() }.buttonStyle(.borderedProminent).controlSize(.large)
+            Button("Start session", systemImage: "play.fill") { store.start() }.buttonStyle(.pointer(.borderedProminent)).controlSize(.large)
         }
         .onChange(of: store.journal.draft) { _, _ in store.persistJournal() }
         .onChange(of: store.journal.hours) { _, value in if value.isFinite { store.persistJournal() } }
@@ -55,7 +55,7 @@ struct PauseView: View {
             Label("Why are you pausing?", systemImage: "pause.circle").font(.title2)
             Text("Pauses don’t spend earned break time. Your reason and the time away will be saved in the session journal.").foregroundStyle(.secondary)
             TextEditor(text: $reason).frame(height: 100).lockInEditor()
-            HStack { Button("Cancel") { store.showPause = false }; Spacer(); Button("Pause session") { store.pause(reason: reason) }.buttonStyle(.borderedProminent).disabled(reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
+            HStack { Button("Cancel") { store.showPause = false }; Spacer(); Button("Pause session") { store.pause(reason: reason) }.buttonStyle(.pointer(.borderedProminent)).disabled(reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
         }.padding(28).frame(width: 480).clearsFieldFocusOnClick()
     }
 }
@@ -73,7 +73,7 @@ struct EndSessionView: View {
             HStack {
                 Button("Cancel") { store.showEndSession = false }
                 Spacer()
-                Button("End session & review") { store.endSession(reason: reason) }.buttonStyle(.borderedProminent)
+                Button("End session & review") { store.endSession(reason: reason) }.buttonStyle(.pointer(.borderedProminent))
                     .disabled(reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }.padding(28).frame(width: 480).clearsFieldFocusOnClick()
@@ -101,7 +101,7 @@ struct DayReviewView: View {
                     }
                 }
             }.frame(minHeight: 140)
-            HStack { Text("Saved locally in ~/.lockin").font(.caption).foregroundStyle(.secondary); Spacer(); Button("Save & plan next session") { store.completeReview() }.buttonStyle(.borderedProminent) }
+            HStack { Text("Saved locally in ~/.lockin").font(.caption).foregroundStyle(.secondary); Spacer(); Button("Save & plan next session") { store.completeReview() }.buttonStyle(.pointer(.borderedProminent)) }
         }.padding(28).frame(width: 720, height: 660).clearsFieldFocusOnClick()
         .interactiveDismissDisabled()
         .onChange(of: store.reviewIndex.map { store.journal.sessions[$0].todos } ?? []) { _, _ in store.persistJournal() }

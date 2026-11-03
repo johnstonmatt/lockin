@@ -65,21 +65,32 @@ extension View {
     }
 }
 
-/// The optional Linear issue link field used wherever a task is entered.
-struct LinearLinkField: View {
+/// The optional link field used wherever a task is entered.
+struct TaskLinkField: View {
     @Binding var link: String
     var onSubmit: () -> Void = {}
     var body: some View {
-        TextField("Linear issue URL (optional)", text: $link)
+        TextField("Link: Linear, GitHub, Notion… (optional)", text: $link)
             .textFieldStyle(.lockIn(icon: "link", invalid: !Todo.isValidLink(link)))
             .onSubmit(onSubmit)
     }
 }
 
-/// Shown under a task's fields while its link is not a Linear issue URL.
+/// Shown under a task's fields while its link isn't a usable web link.
 struct LinkRequirementNote: View {
     let link: String
     var body: some View {
         if !Todo.isValidLink(link) { Text(Todo.linkRequirement).font(.caption).foregroundStyle(.red) }
+    }
+}
+
+/// A task's link, named after the service it points to ("Linear ↗", "GitHub ↗", "Notion ↗"), or its site otherwise.
+struct TaskLinkBadge: View {
+    let todo: Todo
+    var body: some View {
+        if let url = todo.linkURL, let label = todo.linkLabel {
+            // An explicit .link style, or the root .pointer(.automatic) would render the link as a bordered button.
+            Link("\(label) ↗", destination: url).buttonStyle(.pointer(.link)).help(todo.link)
+        }
     }
 }

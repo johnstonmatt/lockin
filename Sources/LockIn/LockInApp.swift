@@ -75,7 +75,7 @@ struct MenuPanel: View {
                 Button("Open Lock In") { openWindow(id: "main"); NSApp.activate(ignoringOtherApps: true) }
                 Spacer()
                 Button("Quit") { NSApp.terminate(nil) }.disabled(store.locked)
-            }.buttonStyle(.plain)
-        }.padding(22).frame(width: 310).tint(.mint)
+            }.buttonStyle(.pointer(.plain))
+        }.padding(22).frame(width: 310).tint(.mint).buttonStyle(.pointer(.automatic))
     }
 }

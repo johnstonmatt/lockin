@@ -27,7 +27,7 @@ Releases are built by GitHub Actions and published as a Developer ID signed, not
 
 ## Daily work sessions
 
-Open Lock In, enter your TODOs (each can have an optional HTTPS Linear issue link), and enter the number of hours of actual work. Start begins a finite work session.
+Open Lock In, enter your TODOs (each can have an optional link, shown as Linear, GitHub or Notion when it points there, or as the site name otherwise), and enter the number of hours of actual work. Start begins a finite work session.
 
 - Work earns break time continuously at **5 minutes per hour**: two worked hours earns ten minutes. This is a proportional rate, not a two-hour unlock threshold.
 - Taking a break spends the earned balance. Returning early preserves unused time; reaching zero resumes work automatically. Breaks cannot accrue more credit.
@@ -42,11 +42,11 @@ Open Lock In, enter your TODOs (each can have an optional HTTPS Linear issue lin
 
 ## Journal files
 
-`~/.lockin/session-<UUID>.yaml` contains each session’s target, TODOs, optional Linear links, completion and rollover flags, and chronological work/break/pause intervals (including pause explanations). Timestamps use ISO 8601 UTC. Open intervals have `ended_at: null`; total durations are checkpointed every ten seconds and on transitions/review edits.
+`~/.lockin/session-<UUID>.yaml` contains each session’s target, TODOs, optional links (with the recognized service), completion and rollover flags, and chronological work/break/pause intervals (including pause explanations). Timestamps use ISO 8601 UTC. Open intervals have `ended_at: null`; total durations are checkpointed every ten seconds and on transitions/review edits.
 
 `~/.lockin/state.json` is an internal recovery snapshot for active sessions, draft tasks and pending reviews. YAML files are human-readable exports owned by the app; edit TODOs through the app, since external YAML edits are not imported. Files are written atomically one at a time. If a multi-file write is interrupted, the snapshot remains the recovery source and YAML is regenerated on the next save. Read failures preserve the original files and prevent new sessions. Write failures are shown in the app.
 
-Linear URLs are saved as links only. No Linear account access or API integration is required.
+Links are saved as URLs only. No Linear, GitHub or Notion account access or API integration is required.
 
 ## Other features
 

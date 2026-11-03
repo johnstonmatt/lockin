@@ -3,26 +3,64 @@ import Foundation
 public struct Todo: Identifiable, Codable, Equatable, Sendable {
     public var id = UUID()
     public var title = ""
-    public var linearURL = ""
+    /// Optional web link for the task: a Linear issue, GitHub issue or PR, Notion page, or any other URL.
+    public var link = ""
     public var completed = false
     public var rollForward = false
     public var sourceTodoID: UUID?
+    /// `link` keeps the "linearURL" key from when only Linear links were allowed, so existing journals load unchanged.
+    private enum CodingKeys: String, CodingKey { case id, title, link = "linearURL", completed, rollForward, sourceTodoID }
     public init(title: String = "") { self.title = title }
-    public static let linkRequirement = "Use an https://linear.app issue URL."
-    /// Blank, or an https link on linear.app.
+    public static let linkRequirement = "Use a full web link, starting with https://"
+    /// Blank, or an http(s) URL with a host.
     public static func isValidLink(_ text: String) -> Bool {
         if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
-        guard let url = URL(string: text), url.scheme == "https", let host = url.host else { return false }
-        return host == "linear.app" || host.hasSuffix(".linear.app")
+        guard let url = URL(string: text), ["https", "http"].contains(url.scheme?.lowercased() ?? ""),
+              let host = url.host, !host.isEmpty else { return false }
+        return true
     }
-    public var validLink: Bool { Self.isValidLink(linearURL) }
+    public var validLink: Bool { Self.isValidLink(link) }
+    /// The link as a URL, when one is set and valid.
+    public var linkURL: URL? { link.isEmpty || !validLink ? nil : URL(string: link) }
+    public var linkService: LinkService? { linkURL.flatMap(LinkService.init(url:)) }
+    /// What the link is shown as: the service name for Linear, GitHub and Notion, otherwise the site's host.
+    public var linkLabel: String? {
+        guard let url = linkURL else { return nil }
+        if let service = linkService { return service.label }
+        let host = url.host ?? link
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+    }
     public var hasTitle: Bool { !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     /// A copy with user-entered fields applied and trimmed; identity and lineage are kept.
-    public func with(title: String, linearURL: String) -> Todo {
+    public func with(title: String, link: String) -> Todo {
         var copy = self
         copy.title = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        copy.linearURL = linearURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        copy.link = link.trimmingCharacters(in: .whitespacesAndNewlines)
         return copy
+    }
+}
+/// Services a task link is recognized as, by host.
+public enum LinkService: String, CaseIterable, Sendable {
+    case linear, github, notion
+    public var label: String {
+        switch self {
+        case .linear: return "Linear"
+        case .github: return "GitHub"
+        case .notion: return "Notion"
+        }
+    }
+    private var domains: [String] {
+        switch self {
+        case .linear: return ["linear.app"]
+        case .github: return ["github.com"]
+        case .notion: return ["notion.so", "notion.site"]
+        }
+    }
+    public init?(url: URL) {
+        guard let host = url.host?.lowercased() else { return nil }
+        let match = Self.allCases.first { $0.domains.contains { host == $0 || host.hasSuffix("." + $0) } }
+        guard let match else { return nil }
+        self = match
     }
 }
 public enum WorkPhase: String, Codable, CaseIterable, Sendable { case work, `break`, pause }
@@ -99,7 +137,7 @@ public struct WorkLog: Identifiable, Codable, Sendable {
     }
     public var rolledTodos: [Todo] {
         todos.filter(\.rollForward).map { old in
-            var todo = Todo(title: old.title); todo.linearURL = old.linearURL; todo.sourceTodoID = old.id
+            var todo = Todo(title: old.title); todo.link = old.link; todo.sourceTodoID = old.id
             return todo
         }
     }
@@ -125,9 +163,10 @@ public enum SessionYAML {
         return quoted(ISO8601DateFormatter().string(from: value))
     }
     public static func encode(_ log: WorkLog, at now: Date) -> String {
-        var lines = ["schema_version: 1", "id: \(quoted(log.id.uuidString))", "started_at: \(date(log.startedAt))", "ended_at: \(date(log.endedAt))", "target_work_seconds: \(log.targetSeconds)", "finished_naturally: \(log.finishedNaturally)", "end_reason: \(log.endReason.map(quoted) ?? "null")", "reviewed: \(log.reviewed)", "work_seconds: \(log.seconds(.work, at: now))", "break_seconds: \(log.seconds(.break, at: now))", "pause_seconds: \(log.seconds(.pause, at: now))", "earned_break_seconds: \(log.seconds(.work, at: now) / 12)", "remaining_break_seconds: \(log.breakBalance(at: now))", "todos:\(log.todos.isEmpty ? " []" : "")"]
+        // Version 2: a task's `linear_url` became `link`, plus `link_service`.
+        var lines = ["schema_version: 2", "id: \(quoted(log.id.uuidString))", "started_at: \(date(log.startedAt))", "ended_at: \(date(log.endedAt))", "target_work_seconds: \(log.targetSeconds)", "finished_naturally: \(log.finishedNaturally)", "end_reason: \(log.endReason.map(quoted) ?? "null")", "reviewed: \(log.reviewed)", "work_seconds: \(log.seconds(.work, at: now))", "break_seconds: \(log.seconds(.break, at: now))", "pause_seconds: \(log.seconds(.pause, at: now))", "earned_break_seconds: \(log.seconds(.work, at: now) / 12)", "remaining_break_seconds: \(log.breakBalance(at: now))", "todos:\(log.todos.isEmpty ? " []" : "")"]
         for todo in log.todos {
-            lines += ["  - id: \(quoted(todo.id.uuidString))", "    title: \(quoted(todo.title))", "    linear_url: \(todo.linearURL.isEmpty ? "null" : quoted(todo.linearURL))", "    completed: \(todo.completed)", "    roll_into_next_session: \(todo.rollForward)", "    source_todo_id: \(todo.sourceTodoID.map { quoted($0.uuidString) } ?? "null")"]
+            lines += ["  - id: \(quoted(todo.id.uuidString))", "    title: \(quoted(todo.title))", "    link: \(todo.link.isEmpty ? "null" : quoted(todo.link))", "    link_service: \(todo.linkService.map { quoted($0.rawValue) } ?? "null")", "    completed: \(todo.completed)", "    roll_into_next_session: \(todo.rollForward)", "    source_todo_id: \(todo.sourceTodoID.map { quoted($0.uuidString) } ?? "null")"]
         }
         lines.append("intervals:")
         for interval in log.intervals {

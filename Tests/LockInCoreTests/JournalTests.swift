@@ -64,7 +64,7 @@ final class JournalTests: XCTestCase {
     func testRolloverCopiesSelectedTasksWithLineage() {
         var log = makeLog()
         log.todos[0].rollForward = true; log.todos[0].completed = true
-        log.todos[0].linearURL = "https://linear.app/team/issue/ABC-1/ship"
+        log.todos[0].link = "https://linear.app/team/issue/ABC-1/ship"
         log.todos.append(Todo(title: "Do not roll"))
         let next = log.rolledTodos
         XCTAssertEqual(next.count, 1)
@@ -72,7 +72,7 @@ final class JournalTests: XCTestCase {
         XCTAssertNotEqual(next[0].id, log.todos[0].id)
         XCTAssertFalse(next[0].completed)
         XCTAssertFalse(next[0].rollForward)
-        XCTAssertEqual(next[0].linearURL, log.todos[0].linearURL)
+        XCTAssertEqual(next[0].link, log.todos[0].link)
     }
     func testYAMLEscapesUserTextAndTracksPause() {
         var log = makeLog()
@@ -91,5 +91,39 @@ final class JournalTests: XCTestCase {
         let restored = try JSONDecoder().decode(JournalState.self, from: JSONEncoder().encode(state))
         XCTAssertEqual(restored.sessions[0].phase, .pause)
         XCTAssertEqual(restored.sessions[0].intervals.last?.reason, "Meeting")
+    }
+    func testLinksAreLabelledByService() {
+        func label(_ link: String) -> String? { var todo = Todo(title: "t"); todo.link = link; return todo.linkLabel }
+        XCTAssertEqual(label("https://linear.app/acme/issue/ABC-1"), "Linear")
+        XCTAssertEqual(label("https://github.com/acme/app/pull/12"), "GitHub")
+        XCTAssertEqual(label("https://gist.github.com/someone/abc"), "GitHub")
+        XCTAssertEqual(label("https://www.notion.so/acme/Plan-123"), "Notion")
+        XCTAssertEqual(label("https://acme.notion.site/Plan-123"), "Notion")
+        XCTAssertEqual(label("https://www.example.com/page"), "example.com")
+        XCTAssertEqual(label("https://notgithub.com/x"), "notgithub.com", "a lookalike domain is not GitHub")
+        XCTAssertNil(label(""))
+        XCTAssertNil(label("not a url"))
+    }
+    func testLinkValidation() {
+        XCTAssertTrue(Todo.isValidLink(""))
+        XCTAssertTrue(Todo.isValidLink("https://example.com"))
+        XCTAssertTrue(Todo.isValidLink("http://intranet.local/wiki"))
+        XCTAssertFalse(Todo.isValidLink("example.com"))
+        XCTAssertFalse(Todo.isValidLink("javascript:alert(1)"))
+        XCTAssertFalse(Todo.isValidLink("ftp://example.com/file"))
+    }
+    /// Journals saved before links were generalized store the link under "linearURL"; they must load, and keep that key.
+    func testTaskLinkKeepsItsSavedKey() throws {
+        let id = UUID()
+        let json = #"{"id":"\#(id)","title":"Old task","linearURL":"https://linear.app/acme/issue/ABC-1","completed":false,"rollForward":true}"#
+        let todo = try JSONDecoder().decode(Todo.self, from: Data(json.utf8))
+        XCTAssertEqual(todo.link, "https://linear.app/acme/issue/ABC-1")
+        XCTAssertEqual(todo.linkService, .linear)
+        XCTAssertTrue(todo.rollForward)
+        let encoded = String(decoding: try JSONEncoder().encode(todo), as: UTF8.self)
+        XCTAssertTrue(encoded.contains("\"linearURL\""))
+        let yaml = SessionYAML.encode(WorkLog(todos: [todo], targetSeconds: 60, now: start), at: start)
+        XCTAssertTrue(yaml.contains("schema_version: 2"))
+        XCTAssertTrue(yaml.contains("link_service: \"linear\""))
     }
 }
