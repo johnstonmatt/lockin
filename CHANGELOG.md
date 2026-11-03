@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.0](https://github.com/johnstonmatt/lockin/compare/v0.2.0...v0.3.0) (2026-11-03)
+
+
+### Features
+
+* allow toggling task completion during active sessions ([1dee525](https://github.com/johnstonmatt/lockin/commit/1dee525f443614012f94115774d78677ff77d7cd))
+* track overtime after work targets and allow explicit session completion ([b20596e](https://github.com/johnstonmatt/lockin/commit/b20596ebc3b9ba9518634c4e3e33b6add5ade00d))
+
+
+### Refactoring
+
+* remove scheduling and legacy records, streamline task forms and journal persistence ([bb1d4af](https://github.com/johnstonmatt/lockin/commit/bb1d4af5581ef8c0e4fcda46d814ca4b6f8d516e))
+
 ## [0.2.0](https://github.com/johnstonmatt/lockin/compare/v0.1.0...v0.2.0) (2026-11-03)
 
 
