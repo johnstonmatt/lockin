@@ -1,0 +1,3 @@
+#!/bin/bash
+# Build Lock In and install it to /Applications. See Scripts/install-app.sh.
+exec "$(dirname "$0")/Scripts/install-app.sh" "$@"
