@@ -38,7 +38,7 @@ Open Lock In, enter your TODOs (each can have an optional link, shown as Linear,
 - Completion opens a day timeline, including all work, break and pause intervals overlapping that calendar day. Edit task titles/links, mark TODOs complete, and select **Next session** separately for each task. Saving the review creates a new draft containing only selected tasks, with source-task IDs retained for lineage.
 - Earned credit is scoped to each session and does not roll forward. Task rollover is explicit, including for completed tasks.
 - Sleep and unexpected app downtime become system-explained pauses. App checkpoints are written every ten seconds; abrupt termination may lose at most the work since the last successful checkpoint. No idle/keyboard monitoring is performed: time counts as work while the work phase is running.
-- Schedules now prompt for planning instead of starting unplanned sessions. Continuous Pomodoro and open-ended sessions are superseded by this work-target flow.
+- Continuous Pomodoro and open-ended sessions are superseded by this work-target flow.
 
 ## Journal files
 
@@ -73,7 +73,6 @@ This is a working first implementation, **not full feature parity**. The referen
 | Application enforcement | Hides selected apps repeatedly; does not prevent execution or terminate processes. |
 | Tamper resistance | Normal UI controls honor locked sessions; force-quit or editing local data bypasses them. A privileged, signed helper or system extension needs a separate implementation. |
 | Session workflow | Work-target planning replaces the v1 Pomodoro/open-ended flow. Hardcore still allows earned breaks and justified pauses. |
-| Schedules | Local-time planning reminders; sessions must be planned and started explicitly. |
 | Rules | Domain, subdomain, path-prefix and exact query matching. No arbitrary wildcard/regex patterns or browser-specific rules. |
 | Do Not Disturb | No automatic OS Focus toggle; can be integrated through user-supplied workflow scripts/Shortcuts. |
 | Block page | One original message; no custom quote collection/editor. The blocked URL is passed as `?url=`. Refreshing the block page returns to that URL: it stays open on a break, and is blocked again during work. |
@@ -81,12 +80,12 @@ This is a working first implementation, **not full feature parity**. The referen
 | Automation | `lockin://` URL actions and shell hooks; no AppleScript dictionary or full Focus-compatible command schema. |
 | Import | Does not read or alter your existing Focus preferences, sessions, license, or helper. |
 
-The global shortcut may be unavailable if another app already owns it. macOS must keep Lock In running for enforcement and scheduling. The packaged build has not been validated across all supported browsers.
+The global shortcut may be unavailable if another app already owns it. macOS must keep Lock In running for enforcement. The packaged build has not been validated across all supported browsers.
 
 ## Architecture
 
-- `LockInCore`: Codable state, URL-rule matcher, schedule occurrence logic and session phase data; independently tested.
-- `Store`: main-actor session orchestration, atomic JSON persistence, schedule firing and workflow execution.
+- `LockInCore`: Codable state, URL-rule matcher and session phase data; independently tested.
+- `Store`: main-actor session orchestration, atomic JSON persistence and workflow execution.
 - `Blocker`: serialized browser Apple events, cancellation on stop/break, application hiding.
 - SwiftUI views: shared state for the window and menu-bar panel. AppKit handles app selection; Carbon registers the global shortcut without keystroke monitoring.
 

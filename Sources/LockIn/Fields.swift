@@ -76,6 +76,26 @@ struct TaskLinkField: View {
     }
 }
 
+/// A task's title and link fields on one row, followed by `actions` (e.g. Add, or Cancel and Save).
+struct TaskForm<Actions: View>: View {
+    @Binding var title: String
+    @Binding var link: String
+    let placeholder: String
+    var icon: String?
+    let onSubmit: () -> Void
+    @ViewBuilder let actions: Actions
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                TextField(placeholder, text: $title).textFieldStyle(.lockIn(icon: icon)).onSubmit(onSubmit)
+                TaskLinkField(link: $link, onSubmit: onSubmit)
+                actions
+            }
+            LinkRequirementNote(link: link)
+        }
+    }
+}
+
 /// Shown under a task's fields while its link isn't a usable web link.
 struct LinkRequirementNote: View {
     let link: String

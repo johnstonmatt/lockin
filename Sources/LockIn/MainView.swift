@@ -1,5 +1,4 @@
 import SwiftUI
-import Charts
 import AppKit
 import LockInCore
 import UniformTypeIdentifiers
@@ -36,7 +35,6 @@ struct MainView: View {
                     switch store.page {
                     case .focus: FocusView()
                     case .distractions: DistractionsView()
-                    case .schedules: SchedulesView()
                     case .insights: InsightsView()
                     case .settings: PreferencesView()
                     }
@@ -69,7 +67,6 @@ struct MainView: View {
         switch store.page {
         case .focus: return "Make room for what matters."
         case .distractions: return "Choose what stays outside your focus time."
-        case .schedules: return "Give your week a little structure."
         case .insights: return "Small sessions add up."
         case .settings: return "A routine that works for you."
         }
@@ -122,20 +119,15 @@ struct SessionTaskRow: View {
     @State private var editing = false
     @State private var title = ""
     @State private var link = ""
-    private var canSave: Bool { todo.with(title: title, link: link).hasTitle && Todo.isValidLink(link) }
+    private var canSave: Bool { todo.with(title: title, link: link).isValid }
     var body: some View {
         if editing {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    TextField("Task", text: $title).textFieldStyle(.lockIn()).onSubmit(save)
-                    TaskLinkField(link: $link, onSubmit: save)
-                    Button(role: .destructive) { store.deleteTask(id: todo.id) } label: { Image(systemName: "trash") }
-                        .buttonStyle(.pointer(.plain)).foregroundStyle(.red)
-                        .help("Delete task").accessibilityLabel("Delete \(todo.title)")
-                    Button("Cancel") { editing = false }.keyboardShortcut(.cancelAction)
-                    Button("Save", action: save).buttonStyle(.pointer(.borderedProminent)).disabled(!canSave)
-                }
-                LinkRequirementNote(link: link)
+            TaskForm(title: $title, link: $link, placeholder: "Task", onSubmit: save) {
+                Button(role: .destructive) { store.deleteTask(id: todo.id) } label: { Image(systemName: "trash") }
+                    .buttonStyle(.pointer(.plain)).foregroundStyle(.red)
+                    .help("Delete task").accessibilityLabel("Delete \(todo.title)")
+                Button("Cancel") { editing = false }.keyboardShortcut(.cancelAction)
+                Button("Save", action: save).buttonStyle(.pointer(.borderedProminent)).disabled(!canSave)
             }
         } else {
             HStack {
@@ -156,15 +148,10 @@ struct AddSessionTask: View {
     @EnvironmentObject var store: Store
     @State private var title = ""
     @State private var link = ""
-    private var canAdd: Bool { Todo().with(title: title, link: link).hasTitle && Todo.isValidLink(link) }
+    private var canAdd: Bool { Todo().with(title: title, link: link).isValid }
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                TextField("Add a task…", text: $title).textFieldStyle(.lockIn(icon: "plus")).onSubmit(add)
-                TaskLinkField(link: $link, onSubmit: add)
-                Button("Add", systemImage: "plus", action: add).disabled(!canAdd)
-            }
-            LinkRequirementNote(link: link)
+        TaskForm(title: $title, link: $link, placeholder: "Add a task…", icon: "plus", onSubmit: add) {
+            Button("Add", systemImage: "plus", action: add).disabled(!canAdd)
         }
     }
     private func add() {
@@ -183,10 +170,10 @@ struct SessionButtons: View {
             if let log = store.workLog {
                 if log.phase == .work {
                     Button("Take earned break") { store.takeBreak() }.disabled(log.breakBalance(at: store.now) < 1)
-                    Button("Pause…") { store.showPause = true; openWindow(id: "main"); NSApp.activate(ignoringOtherApps: true) }
+                    Button("Pause…") { store.showPause = true; openWindow.main() }
                 } else {
                     Button("Resume work") { store.resume() }.buttonStyle(.pointer(.borderedProminent))
-                    if log.phase == .break { Button("Pause instead…") { store.showPause = true; openWindow(id: "main") } }
+                    if log.phase == .break { Button("Pause instead…") { store.showPause = true; openWindow.main() } }
                 }
                 if showStartNewDay {
                     Spacer()
@@ -196,7 +183,7 @@ struct SessionButtons: View {
                 }
             } else {
                 Button(store.journal.pendingReviewID == nil ? "Plan your session" : "Review your day") {
-                    store.page = .focus; openWindow(id: "main"); NSApp.activate(ignoringOtherApps: true)
+                    store.page = .focus; openWindow.main()
                     if store.journal.pendingReviewID != nil { store.showReview = true }
                 }.buttonStyle(.pointer(.borderedProminent))
             }

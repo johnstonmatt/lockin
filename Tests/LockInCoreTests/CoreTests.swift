@@ -22,22 +22,11 @@ final class CoreTests: XCTestCase {
         XCTAssertFalse(WebsiteRule.shouldBlock(URL(string: "about:blank")!, rules: [], mode: .allow))
         XCTAssertFalse(WebsiteRule.shouldBlock(URL(string: "file:///tmp/blocked.html")!, rules: [], mode: .allow))
     }
-    func testScheduleWindowAndWeekdays() {
-        var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        let monday = calendar.date(from: DateComponents(year: 2026, month: 10, day: 26, hour: 9, minute: 15))!
-        var schedule = Schedule(profileID: UUID()); schedule.duration = 30
-        XCTAssertNotNil(schedule.occurrence(at: monday, calendar: calendar))
-        XCTAssertNil(schedule.occurrence(at: monday.addingTimeInterval(900), calendar: calendar))
-        XCTAssertNil(schedule.occurrence(at: monday.addingTimeInterval(-901), calendar: calendar))
-        schedule.weekdays = [1, 7]
-        XCTAssertNil(schedule.occurrence(at: monday, calendar: calendar))
-    }
     func testStateRoundTripRestoresLockedSession() throws {
         var state = SavedState()
-        state.session = FocusSession(profile: state.profiles[0], locked: true, startedAt: Date(timeIntervalSince1970: 1000))
+        state.session = FocusSession(profile: state.profiles[0], locked: true)
         let data = try JSONEncoder().encode(state)
         let restored = try JSONDecoder().decode(SavedState.self, from: data)
-        XCTAssertEqual(restored.session?.startedAt, state.session?.startedAt)
         XCTAssertTrue(restored.session!.locked)
         XCTAssertEqual(restored.profiles, state.profiles)
     }
@@ -49,7 +38,7 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(parsed?.queryItems?.count, 1)
         XCTAssertEqual(parsed?.queryItems?.first?.value, original)
     }
-    /// State written before the Pomodoro-era fields were removed must still load, including a running session.
+    /// State written before the Pomodoro-era fields, schedules and focus records were removed must still load, including a running session.
     func testDecodesStateWrittenByOlderBuilds() throws {
         let profileID = UUID().uuidString
         let profile = """
@@ -57,13 +46,12 @@ final class CoreTests: XCTestCase {
          "workMinutes":50,"breakMinutes":10,"breakAllowanceMinutes":10,"breakWindowHours":1,"hooks":{}}
         """
         let json = """
-        {"profiles":[\(profile)],"selectedProfileID":"\(profileID)","schedules":[],"records":[],"firedSchedules":{},
+        {"profiles":[\(profile)],"selectedProfileID":"\(profileID)","schedules":[],"records":[{"id":"\(UUID())","profileName":"Focus","start":0,"end":60,"completed":true}],"firedSchedules":{},
          "session":{"profile":\(profile),"mode":"Timer","locked":true,"startedAt":1000,"phaseStartedAt":1000,"deadline":4600,
                     "isBreak":false,"round":1,"breakWindowStartedAt":1000,"usedBreakSeconds":0}}
         """
         let state = try JSONDecoder().decode(SavedState.self, from: Data(json.utf8))
         XCTAssertEqual(state.profiles.first?.websites, ["reddit.com"])
         XCTAssertEqual(state.session?.locked, true)
-        XCTAssertEqual(state.session?.startedAt, Date(timeIntervalSinceReferenceDate: 1000))
     }
 }

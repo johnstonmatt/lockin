@@ -83,6 +83,7 @@ final class JournalTests: XCTestCase {
         XCTAssertTrue(yaml.contains("duration_seconds: 60.0"))
         XCTAssertTrue(yaml.contains("\\nnext line"))
         XCTAssertTrue(yaml.contains("reason: \"Call: urgent\\nsecond line\""))
+        XCTAssertTrue(yaml.contains("started_at: \"2023-11-14T22:13:20Z\""), "timestamps are ISO 8601 UTC")
     }
     func testRecoveryRoundTrip() throws {
         var state = JournalState(); var log = makeLog()
@@ -111,6 +112,8 @@ final class JournalTests: XCTestCase {
         XCTAssertFalse(Todo.isValidLink("example.com"))
         XCTAssertFalse(Todo.isValidLink("javascript:alert(1)"))
         XCTAssertFalse(Todo.isValidLink("ftp://example.com/file"))
+        XCTAssertTrue(Todo.isValidLink("  https://example.com  "), "whitespace is trimmed on save, so it doesn't invalidate a link")
+        XCTAssertTrue(Todo(title: "t").with(title: "t", link: " https://example.com ").isValid)
     }
     /// Journals saved before links were generalized store the link under "linearURL"; they must load, and keep that key.
     func testTaskLinkKeepsItsSavedKey() throws {

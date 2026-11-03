@@ -7,7 +7,7 @@ import AppKit
     @AppStorage("showMenuBarItem") private var showMenuBarItem = true
     @AppStorage("showMenuBarCountdown") private var showMenuBarCountdown = false
     var body: some Scene {
-        Window("Lock In", id: "main") {
+        Window("Lock In", id: MainWindow.id) {
             MainView().environmentObject(store)
                 .onAppear { delegate.connect(store) }
                 .onOpenURL { store.handleURL($0) }
@@ -72,7 +72,7 @@ struct MenuPanel: View {
             SessionButtons()
             Divider()
             HStack {
-                Button("Open Lock In") { openWindow(id: "main"); NSApp.activate(ignoringOtherApps: true) }
+                Button("Open Lock In") { openWindow.main() }
                 Spacer()
                 Button("Quit") { NSApp.terminate(nil) }.disabled(store.locked)
             }.buttonStyle(.pointer(.plain))
