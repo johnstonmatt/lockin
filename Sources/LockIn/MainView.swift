@@ -113,7 +113,7 @@ struct FocusView: View {
                 Text("This session’s tasks").font(.headline)
                 ForEach(log.todos) { todo in SessionTaskRow(todo: todo) }
                 AddSessionTask()
-                Text("Mark tasks done and carry them forward in the completion review.").font(.caption).foregroundStyle(.secondary)
+                Text("Tick tasks off as you go. Choose what carries forward in the completion review.").font(.caption).foregroundStyle(.secondary)
             }
         } else if store.journal.pendingReviewID != nil {
             Card { Text("Session complete").font(.title2); Text("Review your day and choose what comes next."); Button("Review day") { store.showReview = true }.buttonStyle(.pointer(.borderedProminent)) }
@@ -151,7 +151,15 @@ struct SessionTaskRow: View {
             }
         } else {
             HStack {
-                Image(systemName: todo.completed ? "checkmark.circle.fill" : "circle"); Text(todo.title); Spacer()
+                Button { store.setTaskCompleted(id: todo.id, !todo.completed) } label: {
+                    Image(systemName: todo.completed ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(todo.completed ? Color.green : .secondary).contentShape(Rectangle())
+                }
+                .buttonStyle(.pointer(.plain))
+                .help(todo.completed ? "Mark as not done" : "Mark as done")
+                .accessibilityLabel(todo.title).accessibilityValue(todo.completed ? "Done" : "Not done")
+                Text(todo.title).strikethrough(todo.completed).foregroundStyle(todo.completed ? .secondary : .primary)
+                Spacer()
                 TaskLinkBadge(todo: todo)
                 Button { title = todo.title; link = todo.link; editing = true } label: { Image(systemName: "pencil") }
                     .buttonStyle(.pointer(.plain)).help("Edit task").accessibilityLabel("Edit \(todo.title)")
