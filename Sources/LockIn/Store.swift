@@ -165,13 +165,22 @@ import LockInCore
             todos[index] = todos[index].with(title: title, link: link); return index
         }
     }
+    /// Removes a task from the running session. Its record goes too: it won't appear in the review or journal.
+    @discardableResult func deleteTask(id: UUID) -> Bool {
+        guard let index = activeLogIndex, journal.sessions[index].todos.contains(where: { $0.id == id }) else { return false }
+        return replaceTasks(journal.sessions[index].todos.filter { $0.id != id }, inSession: index)
+    }
     /// Applies an edit to the running session's tasks; `edit` returns the index of the changed task.
-    /// The edit is rolled back if that task is invalid or the journal can't be saved.
+    /// The edit is rejected if that task is invalid.
     private func editTasks(_ edit: (inout [Todo]) -> Int?) -> Bool {
         guard let index = activeLogIndex else { return false }
         var todos = journal.sessions[index].todos
         guard let changed = edit(&todos), todos[changed].hasTitle else { return false }
         guard todos[changed].validLink else { message = Todo.linkRequirement; return false }
+        return replaceTasks(todos, inSession: index)
+    }
+    /// Saves a session's new task list, rolling back if the journal can't be written.
+    private func replaceTasks(_ todos: [Todo], inSession index: Int) -> Bool {
         let previous = journal.sessions[index].todos
         journal.sessions[index].todos = todos
         guard persistJournal() else { journal.sessions[index].todos = previous; return false }

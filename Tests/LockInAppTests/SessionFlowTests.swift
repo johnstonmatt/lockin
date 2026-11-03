@@ -154,4 +154,14 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertEqual(store.workLog?.phase, .work)
         XCTAssertNotNil(store.message)
     }
+    @MainActor func testTasksCanBeDeletedMidSession() throws {
+        let store = makeStore()
+        store.journal.draft = [Todo(title: "Keep"), Todo(title: "Drop")]
+        store.start()
+        let drop = try XCTUnwrap(store.workLog?.todos.last)
+        XCTAssertFalse(store.deleteTask(id: UUID()))
+        XCTAssertTrue(store.deleteTask(id: drop.id))
+        XCTAssertEqual(store.workLog?.todos.map(\.title), ["Keep"])
+        XCTAssertEqual(makeStore().workLog?.todos.map(\.title), ["Keep"], "the deletion is saved")
+    }
 }

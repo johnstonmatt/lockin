@@ -129,6 +129,9 @@ struct SessionTaskRow: View {
                 HStack {
                     TextField("Task", text: $title).textFieldStyle(.lockIn()).onSubmit(save)
                     TaskLinkField(link: $link, onSubmit: save)
+                    Button(role: .destructive) { store.deleteTask(id: todo.id) } label: { Image(systemName: "trash") }
+                        .buttonStyle(.pointer(.plain)).foregroundStyle(.red)
+                        .help("Delete task").accessibilityLabel("Delete \(todo.title)")
                     Button("Cancel") { editing = false }.keyboardShortcut(.cancelAction)
                     Button("Save", action: save).buttonStyle(.pointer(.borderedProminent)).disabled(!canSave)
                 }
