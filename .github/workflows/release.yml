@@ -77,9 +77,13 @@ jobs:
       - uses: googleapis/release-please-action@v4
         id: release
         with:
-          # GITHUB_TOKEN works, but PRs opened with it don't trigger other
-          # workflows, so ci.yml never runs on the release PR. Set a PAT with
-          # repo scope as RELEASE_PLEASE_TOKEN to get checks on it.
+          # GITHUB_TOKEN works, but CI runs on a release PR it opens or updates
+          # are triggered by github-actions[bot], and GitHub holds those as
+          # "action required" until someone approves them. Setting
+          # RELEASE_PLEASE_TOKEN makes release-please act as that token's owner
+          # instead, so CI runs without approval. Use a fine-grained PAT for
+          # this repo only, with read and write access to Contents, Pull
+          # requests and Issues (Issues is for the release labels).
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
 
   build-macos:

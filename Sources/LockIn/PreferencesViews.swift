@@ -72,7 +72,7 @@ struct PreferencesView: View {
                 .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
             Divider()
             Text("About this build").font(.headline)
-            Text("Native macOS app inspired by Focus 1.15. Settings and history stay on this Mac. Browser protection requires Automation permission and checks active tabs; it is not a network firewall. Apps are hidden, not terminated. Force-quitting Lock In bypasses protection. System-wide filtering, Firefox support and automatic Do Not Disturb are not included in this build.")
+            Text("Settings and history stay on this Mac. Browser protection requires Automation permission and checks active tabs; it is not a network firewall. Apps are hidden, not terminated. Force-quitting Lock In bypasses protection. System-wide filtering, Firefox support and automatic Do Not Disturb are not included in this build.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
