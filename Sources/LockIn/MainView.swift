@@ -58,6 +58,7 @@ struct MainView: View {
     private var statusText: String {
         switch store.workLog?.phase {
         case .work: return "Focusing"
+        case .overtime: return "In overtime"
         case .break: return "On a break"
         case .pause: return "Paused"
         case nil: return "Your time, protected"
@@ -88,9 +89,19 @@ struct FocusView: View {
     var body: some View {
         if let log = store.workLog {
             Card {
-                HStack { Text(log.phase == .work ? "Time to work" : log.phase == .break ? "Earned break" : "Paused").font(.title2); Spacer(); Text("Work target: \(log.targetSeconds / 3600, specifier: "%.2g") h").foregroundStyle(.secondary) }
+                let reached = log.targetReached(at: store.now)
+                HStack {
+                    Text(heading(log.phase)).font(.title2).foregroundStyle(log.phase == .overtime ? WorkPhase.overtime.color : .primary)
+                    Spacer()
+                    Text("Work target: \(log.targetSeconds / 3600, specifier: "%.2g") h\(reached ? " · reached" : "")").foregroundStyle(.secondary)
+                }
                 Text(store.timerText).font(.system(size: 58, weight: .light, design: .rounded)).monospacedDigit()
+                    .foregroundStyle(reached && log.phase != .break ? WorkPhase.overtime.color : .primary)
                 ProgressView(value: min(log.seconds(.work, at: store.now), log.targetSeconds), total: log.targetSeconds).tint(.green)
+                if reached {
+                    Label("Target reached. Keep going and it’s tracked as overtime, or finish the session to review it.", systemImage: "flag.checkered")
+                        .font(.callout).foregroundStyle(WorkPhase.overtime.color)
+                }
                 HStack {
                     Label("Break balance: " + Store.clock(log.breakBalance(at: store.now)), systemImage: "cup.and.saucer")
                     Spacer(); Text("5 min earned per hour worked").font(.caption).foregroundStyle(.secondary)
@@ -110,6 +121,15 @@ struct FocusView: View {
             PlannerView()
         }
         ProtectionStatus(blocker: store.blocker)
+    }
+}
+
+private func heading(_ phase: WorkPhase?) -> String {
+    switch phase {
+    case .work, nil: return "Time to work"
+    case .overtime: return "Overtime"
+    case .break: return "Earned break"
+    case .pause: return "Paused"
     }
 }
 
@@ -168,14 +188,20 @@ struct SessionButtons: View {
     var body: some View {
         HStack(spacing: 12) {
             if let log = store.workLog {
-                if log.phase == .work {
+                if store.targetReached {
+                    Button("Finish session", systemImage: "flag.checkered") { store.finishSession() }
+                        .buttonStyle(.pointer(.borderedProminent)).tint(WorkPhase.overtime.color)
+                }
+                if log.phase?.isFocused == true {
                     Button("Take earned break") { store.takeBreak() }.disabled(log.breakBalance(at: store.now) < 1)
                     Button("Pause…") { store.showPause = true; openWindow.main() }
                 } else {
-                    Button("Resume work") { store.resume() }.buttonStyle(.pointer(.borderedProminent))
+                    // Past the target, Finish session is the prominent action.
+                    if store.targetReached { Button("Resume overtime") { store.resume() } }
+                    else { Button("Resume work") { store.resume() }.buttonStyle(.pointer(.borderedProminent)) }
                     if log.phase == .break { Button("Pause instead…") { store.showPause = true; openWindow.main() } }
                 }
-                if showStartNewDay {
+                if showStartNewDay && !store.targetReached {
                     Spacer()
                     Button("Start new day…", systemImage: "sunrise") { store.showEndSession = true }
                         .disabled(store.locked)

@@ -19,6 +19,8 @@ public struct PhaseTotals: Equatable, Sendable {
     public init() {}
     public subscript(_ phase: WorkPhase) -> Double { seconds[phase, default: 0] }
     public var total: Double { seconds.values.reduce(0, +) }
+    /// Work and overtime together.
+    public var worked: Double { self[.work] + self[.overtime] }
 }
 
 public struct InsightBucket: Identifiable, Sendable {
@@ -88,22 +90,22 @@ public struct WorkStats: Sendable {
     public func previousWork(_ period: InsightsPeriod, offset: Int = 0) -> Double {
         let current = range(period, offset: offset), previous = range(period, offset: offset - 1)
         let elapsed = min(max(0, min(now, current.end).timeIntervalSince(current.start)), previous.duration)
-        return totals(in: DateInterval(start: previous.start, duration: elapsed))[.work]
+        return totals(in: DateInterval(start: previous.start, duration: elapsed)).worked
     }
 
     public func daysWorked(in range: DateInterval) -> Int {
-        Set(intervals(in: range).filter { $0.kind == .work }.flatMap { item in
+        Set(intervals(in: range).filter(\.kind.isFocused).flatMap { item in
             [calendar.startOfDay(for: item.start), calendar.startOfDay(for: (item.end ?? now).addingTimeInterval(-1))]
         }).count
     }
     public func longestStretch(in range: DateInterval) -> Double {
-        intervals(in: range).filter { $0.kind == .work }.map { $0.seconds(at: now) }.max() ?? 0
+        intervals(in: range).filter(\.kind.isFocused).map { $0.seconds(at: now) }.max() ?? 0
     }
 
-    /// Work seconds by weekday (1 = Sunday) and hour of day, split exactly at hour boundaries.
+    /// Work and overtime seconds by weekday (1 = Sunday) and hour of day, split exactly at hour boundaries.
     public func rhythm(in range: DateInterval) -> [RhythmCell] {
         var grid: [Int: Double] = [:]
-        for item in intervals(in: range) where item.kind == .work {
+        for item in intervals(in: range) where item.kind.isFocused {
             var cursor = item.start
             let end = item.end ?? now
             while cursor < end {

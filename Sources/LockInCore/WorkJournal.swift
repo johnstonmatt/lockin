@@ -71,7 +71,12 @@ public enum LinkService: String, CaseIterable, Sendable {
         self = match
     }
 }
-public enum WorkPhase: String, Codable, CaseIterable, Sendable { case work, `break`, pause }
+/// `overtime` is work done after the target is reached; it's recorded separately but counts as work.
+public enum WorkPhase: String, Codable, CaseIterable, Sendable {
+    case work, overtime, `break`, pause
+    /// Work and overtime: time that's focused, blocked and earns break credit.
+    public var isFocused: Bool { self == .work || self == .overtime }
+}
 public struct WorkInterval: Identifiable, Codable, Sendable {
     public var id = UUID()
     public var kind: WorkPhase
@@ -99,8 +104,14 @@ public struct WorkLog: Identifiable, Codable, Sendable {
     public func seconds(_ phase: WorkPhase, at now: Date) -> Double {
         intervals.filter { $0.kind == phase }.reduce(0) { $0 + $1.seconds(at: now) }
     }
+    /// Work and overtime together.
+    public func worked(at now: Date) -> Double { seconds(.work, at: now) + seconds(.overtime, at: now) }
+    /// Work left before the target. Overtime doesn't count toward it: it only starts once this reaches zero.
     public func remaining(at now: Date) -> Double { max(0, targetSeconds - seconds(.work, at: now)) }
-    public func breakBalance(at now: Date) -> Double { max(0, seconds(.work, at: now) / 12 - seconds(.break, at: now)) }
+    public func targetReached(at now: Date) -> Bool { remaining(at: now) <= 0 }
+    /// The phase to work in: regular work until the target is reached, overtime after.
+    public func focusPhase(at now: Date) -> WorkPhase { targetReached(at: now) ? .overtime : .work }
+    public func breakBalance(at now: Date) -> Double { max(0, worked(at: now) / 12 - seconds(.break, at: now)) }
     public mutating func transition(to phase: WorkPhase, at now: Date, reason: String? = nil) {
         guard endedAt == nil, self.phase != phase else { return }
         intervals[intervals.count - 1].end = now
@@ -111,12 +122,17 @@ public struct WorkLog: Identifiable, Codable, Sendable {
         transition(to: .pause, at: now, reason: reason.trimmed); return true
     }
     public mutating func takeBreak(at now: Date) -> Bool {
-        guard phase == .work, breakBalance(at: now) >= 1 else { return false }
+        guard phase?.isFocused == true, breakBalance(at: now) >= 1 else { return false }
         transition(to: .break, at: now); return true
     }
     public mutating func finish(at now: Date, natural: Bool) {
         guard endedAt == nil else { return }
         intervals[intervals.count - 1].end = now; endedAt = now; finishedNaturally = natural
+    }
+    /// Ends a session that has reached its target. Recorded as a natural finish, overtime included.
+    public mutating func complete(at now: Date) -> Bool {
+        guard endedAt == nil, targetReached(at: now) else { return false }
+        finish(at: now, natural: true); return true
     }
     /// Ends an open session before its target, e.g. to start a new day. Requires a nonblank explanation.
     public mutating func endEarly(reason: String, at now: Date) -> Bool {
@@ -128,17 +144,17 @@ public struct WorkLog: Identifiable, Codable, Sendable {
     public var lastActiveAt: Date {
         intervals.last { $0.kind != .pause }.map { $0.end ?? $0.start } ?? endedAt ?? startedAt
     }
-    /// Exact boundaries avoid charging excess break time or overcounting work after a delayed tick.
+    /// Ends a spent break and moves work into overtime once the target is reached. Sessions never end on their own.
+    /// Exact boundaries avoid charging excess break time or misattributing work after a delayed tick.
     public mutating func advance(at now: Date) {
         guard endedAt == nil, let current = intervals.last else { return }
         if phase == .break {
-            let allowance = breakBalance(at: current.start)
-            let end = current.start.addingTimeInterval(allowance)
-            if now >= end { transition(to: .work, at: end) }
+            let end = current.start.addingTimeInterval(breakBalance(at: current.start))
+            if now >= end { transition(to: focusPhase(at: end), at: end) }
         }
         if phase == .work, let current = intervals.last {
             let end = current.start.addingTimeInterval(remaining(at: current.start))
-            if now >= end { finish(at: end, natural: true) }
+            if now >= end { transition(to: .overtime, at: end) }
         }
     }
     public var rolledTodos: [Todo] {
@@ -168,10 +184,11 @@ public enum SessionYAML {
     /// ISO 8601 in UTC, e.g. "2026-11-03T09:00:00Z".
     private static func date(_ value: Date?) -> String { quoted(value?.formatted(.iso8601)) }
     public static func encode(_ log: WorkLog, at now: Date) -> String {
-        let worked = log.seconds(.work, at: now)
+        let worked = log.worked(at: now)
         // Version 2: a task's `linear_url` became `link`, plus `link_service`.
+        // Version 3: `overtime` intervals and `overtime_seconds`; `work_seconds` stays work before the target.
         var lines = [
-            "schema_version: 2",
+            "schema_version: 3",
             "id: \(quoted(log.id.uuidString))",
             "started_at: \(date(log.startedAt))",
             "ended_at: \(date(log.endedAt))",
@@ -179,7 +196,8 @@ public enum SessionYAML {
             "finished_naturally: \(log.finishedNaturally)",
             "end_reason: \(quoted(log.endReason))",
             "reviewed: \(log.reviewed)",
-            "work_seconds: \(worked)",
+            "work_seconds: \(log.seconds(.work, at: now))",
+            "overtime_seconds: \(log.seconds(.overtime, at: now))",
             "break_seconds: \(log.seconds(.break, at: now))",
             "pause_seconds: \(log.seconds(.pause, at: now))",
             "earned_break_seconds: \(worked / 12)",

@@ -30,6 +30,10 @@ final class SessionFlowTests: XCTestCase {
         let last = store.journal.sessions[index].intervals.count - 1
         store.journal.sessions[index].intervals[last].start = Date().addingTimeInterval(-3601)
         store.tick()
+        XCTAssertTrue(store.active, "reaching the target starts overtime")
+        XCTAssertEqual(store.workLog?.phase, .overtime)
+        XCTAssertTrue(store.timerText.hasPrefix("+"))
+        store.finishSession()
         XCTAssertFalse(store.active)
         XCTAssertTrue(store.showReview)
         XCTAssertEqual(store.journal.pendingReviewID, id)
@@ -80,6 +84,30 @@ final class SessionFlowTests: XCTestCase {
         store.endSession(reason: "Starting a new day")
         XCTAssertTrue(store.active)
         XCTAssertNotNil(store.workLog)
+    }
+    @MainActor func testFinishIsRefusedBeforeTheTarget() throws {
+        let store = makeStore()
+        store.journal.draft = [Todo(title: "Work")]
+        store.start()
+        store.finishSession()
+        XCTAssertTrue(store.active)
+        XCTAssertEqual(store.workLog?.phase, .work)
+    }
+    @MainActor func testHardcoreLiftsInOvertime() throws {
+        let store = makeStore()
+        store.journal.draft = [Todo(title: "Locked")]
+        store.journal.hours = 1
+        store.lockSession = true
+        store.start()
+        XCTAssertTrue(store.locked)
+        let index = store.journal.sessions.count - 1
+        store.journal.sessions[index].intervals[0].start = Date().addingTimeInterval(-3601)
+        store.tick()
+        XCTAssertEqual(store.workLog?.phase, .overtime)
+        XCTAssertFalse(store.locked, "the target is met, so Hardcore Mode no longer holds")
+        store.finishSession()
+        XCTAssertFalse(store.active)
+        XCTAssertTrue(try XCTUnwrap(store.journal.sessions.last).finishedNaturally)
     }
     @MainActor func testTasksCanBeAddedMidSession() throws {
         let store = makeStore()

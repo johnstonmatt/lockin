@@ -19,6 +19,16 @@ final class WorkStatsTests: XCTestCase {
         return log
     }
 
+    func testOvertimeCountsAsWorkedTime() {
+        let sessions = [log([(.work, 9, 10), (.overtime, 10, 11.5)], target: 1)]
+        let stats = WorkStats(sessions: sessions, now: at(12), calendar: calendar)
+        let day = stats.day(containing: at(10))
+        XCTAssertEqual(stats.totals(in: day)[.work], 3600)
+        XCTAssertEqual(stats.totals(in: day)[.overtime], 5400)
+        XCTAssertEqual(stats.totals(in: day).worked, 9000)
+        XCTAssertEqual(stats.daysWorked(in: day), 1)
+        XCTAssertEqual(stats.rhythm(in: day).reduce(0) { $0 + $1.seconds }, 9000)
+    }
     func testTotalsClipToRangeAndCountOpenIntervalsUntilNow() {
         let sessions = [log([(.work, 9, 11), (.break, 11, 11.25), (.pause, 11.25, 11.5), (.work, 11.5, nil)])]
         let stats = WorkStats(sessions: sessions, now: at(12), calendar: calendar)
