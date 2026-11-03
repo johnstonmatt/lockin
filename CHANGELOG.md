@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.0](https://github.com/johnstonmatt/lockin/compare/v0.1.0...v0.2.0) (2026-11-03)
+
+
+### Features
+
+* allow deleting tasks during active sessions ([586a93d](https://github.com/johnstonmatt/lockin/commit/586a93d63ee71aa2472093c14ab89a012b4ecda5))
+* support general task links and pointing-hand button cursors ([06c0f8d](https://github.com/johnstonmatt/lockin/commit/06c0f8d07325eee0e6cbcfe85fc04a242307c046))
+
 ## 0.1.0 (2026-11-03)
 
 
