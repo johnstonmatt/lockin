@@ -19,6 +19,8 @@ import LockInCore
     private var journalWritable = true
     private var lastCheckpoint = Date.distantPast
     private let journalDirectory: URL
+    /// Replaceable so tests can exercise update handling without quitting the test runner.
+    var terminate: () -> Void = { NSApp?.terminate(nil) }
     private let enforceBlocking: Bool
     var workLog: WorkLog? { journal.sessions.last(where: { $0.endedAt == nil }) }
     var reviewIndex: Int? { journal.sessions.firstIndex { $0.id == journal.pendingReviewID } }
@@ -160,6 +162,33 @@ import LockInCore
         guard persistJournal() else { journal.sessions[index].todos.removeLast(); return false }
         return true
     }
+    /// Renames or relinks a task in the running session. Invalid edits are rejected and leave the task unchanged.
+    @discardableResult func updateTask(id: UUID, title: String, linearURL: String) -> Bool {
+        guard let index = activeLogIndex, let taskIndex = journal.sessions[index].todos.firstIndex(where: { $0.id == id }) else { return false }
+        var todo = journal.sessions[index].todos[taskIndex]
+        todo.title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        todo.linearURL = linearURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !todo.title.isEmpty else { return false }
+        guard todo.validLink else { message = "Use an https://linear.app issue URL."; return false }
+        let previous = journal.sessions[index].todos[taskIndex]
+        journal.sessions[index].todos[taskIndex] = todo
+        guard persistJournal() else { journal.sessions[index].todos[taskIndex] = previous; return false }
+        return true
+    }
+    /// Used by Scripts/install-app.sh: pauses a working or break phase, remembers to resume after relaunch, then quits.
+    /// A pause you started yourself is left alone. Hardcore Mode refuses, as it does for any quit.
+    func quitForUpdate() {
+        guard !locked else { message = "Hardcore Mode is active. Lock In can be updated when this session ends."; return }
+        if let log = workLog, log.phase != .pause {
+            pause(reason: "Updating Lock In")
+            if let log = workLog {
+                guard log.phase == .pause else { return }
+                journal.resumeAfterUpdateID = log.intervals.last?.id
+                guard persistJournal() else { journal.resumeAfterUpdateID = nil; return }
+            }
+        }
+        terminate()
+    }
     /// Closes the open session before its target so a fresh one can be planned (e.g. the next morning).
     func endSession(reason: String) {
         guard !locked, let index = activeLogIndex else { return }
@@ -238,6 +267,10 @@ import LockInCore
                 state.session = nil
             }
             showReview = journal.pendingReviewID != nil
+            if let pauseID = journal.resumeAfterUpdateID {
+                journal.resumeAfterUpdateID = nil
+                if workLog?.intervals.last?.id == pauseID { resume() } else { persistJournal() }
+            }
         } catch { journalWritable = false; message = "Could not read ~/.lockin/state.json. Original data is preserved. \(error.localizedDescription)" }
     }
     @discardableResult func persistJournal() -> Bool {
@@ -295,6 +328,7 @@ import LockInCore
         case "stop", "pause": showPause = active
         case "break": takeBreak()
         case "resume": resume()
+        case "update": quitForUpdate()
         default: break
         }
     }

@@ -9,7 +9,7 @@ bash Scripts/build-app.sh
 open "dist/Lock In.app"
 ```
 
-To build and install (or update) the app in `/Applications`, run `Scripts/install-app.sh`. It quits a running copy first and relaunches it afterwards. If a session is in progress, the app asks for a pause reason before quitting. If it doesn't quit (in Hardcore Mode it refuses), the script stops and leaves the installed app unchanged.
+To build and install (or update) the app in `/Applications`, run `Scripts/install-app.sh`. A running copy is told to quit with `lockin://update`. This pauses an in-progress session with the reason “Updating Lock In”, and the session resumes automatically once the new version opens. A pause you started yourself stays paused. In Hardcore Mode the app refuses to quit, and the script stops without changing the installed app.
 
 Use the packaged app, rather than `swift run`, for browser Automation permission and URL handling. The build script creates an ad-hoc signed app for local development. Distribution to other Macs needs Developer ID signing and notarization. Open `Package.swift` in Xcode to develop.
 
@@ -25,7 +25,7 @@ Open Lock In, enter your TODOs (each can have an optional HTTPS Linear issue lin
 - Taking a break spends the earned balance. Returning early preserves unused time; reaching zero resumes work automatically. Breaks cannot accrue more credit.
 - Pausing requires a nonblank written justification. Pauses neither spend nor earn break credit. Quitting during work or a break opens that same justification prompt.
 - Breaks and pauses do not count toward the work target. The session finishes naturally only after the target work time is reached.
-- Tasks can be added to a running session (including during a break or pause) from the session’s task list. They’re saved to the session journal immediately and appear in the review like planned tasks.
+- Tasks can be added to a running session, and existing tasks renamed or relinked with the pencil button. This works during a break or pause too. They’re saved to the session journal immediately and appear in the review like planned tasks.
 - **Start new day…** ends the current session early (for example, one left paused overnight). It asks for a reason, prefilled as “Starting a new day”, and saves it as `end_reason`. The session is recorded as `finished_naturally: false` and goes to the usual review, so you can roll tasks into a new plan. Not available in Hardcore Mode.
 - Completion opens a day timeline, including all work, break and pause intervals overlapping that calendar day. Edit task titles/links, mark TODOs complete, and select **Next session** separately for each task. Saving the review creates a new draft containing only selected tasks, with source-task IDs retained for lineage.
 - Earned credit is scoped to each session and does not roll forward. Task rollover is explicit, including for completed tasks.
@@ -49,7 +49,7 @@ Linear URLs are saved as links only. No Linear account access or API integration
 - Hardcore preferences lock and password-gated preferences.
 - History and charts; shell hooks on start, stop, break, resume, and pause.
 - Launch at login and global Control–Option–Command–F shortcut (opens pause justification during a session).
-- `lockin://start`, `lockin://stop`, `lockin://pause`, `lockin://break`, `lockin://resume`; start respects planning/review requirements, stop requires a pause reason.
+- `lockin://start`, `lockin://stop`, `lockin://pause`, `lockin://break`, `lockin://resume`, `lockin://update`; start respects planning/review requirements, stop requires a pause reason. `update` (used by the install script) pauses with “Updating Lock In”, quits, and resumes on relaunch; it is refused in Hardcore Mode.
 
 ## Browser permission
 
@@ -68,9 +68,9 @@ This is a working first implementation, **not full feature parity**. The referen
 | Schedules | Local-time planning reminders; sessions must be planned and started explicitly. |
 | Rules | Domain, subdomain, path-prefix and exact query matching. No arbitrary wildcard/regex patterns or browser-specific rules. |
 | Do Not Disturb | No automatic OS Focus toggle; can be integrated through user-supplied workflow scripts/Shortcuts. |
-| Block page | One original message; no custom quote collection/editor. |
+| Block page | One original message; no custom quote collection/editor. The blocked URL is passed as `?url=`. Refreshing the block page returns to that URL: it stays open on a break, and is blocked again during work. |
 | Menu bar | Countdown and popup controls; no custom icon/click-behavior preferences yet. |
-| Automation | Four URL actions and shell hooks; no AppleScript dictionary or full Focus-compatible command schema. |
+| Automation | `lockin://` URL actions and shell hooks; no AppleScript dictionary or full Focus-compatible command schema. |
 | Import | Does not read or alter your existing Focus preferences, sessions, license, or helper. |
 
 The global shortcut may be unavailable if another app already owns it. macOS must keep Lock In running for enforcement and scheduling. The packaged build has not been validated across all supported browsers.

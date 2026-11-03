@@ -5,5 +5,20 @@
 body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: light-dark(#f5f7f4,#171c19); color: light-dark(#263b30,#e1ebe4); }
 main { text-align: center; max-width: 500px; padding: 40px; }
 .mark { font-size: 70px; color: #49a57d; } h1 { font-size: 40px; font-weight: 500; letter-spacing: -1px; }
-p { line-height: 1.6; opacity: .7; } small { display: block; margin-top: 55px; opacity: .5; letter-spacing: 3px; }
-</style></head><body><main><div class="mark">◎</div><h1>Give your attention<br>somewhere to land.</h1><p>This page is outside your focus time.<br>One thing at a time. You’ve got this.</p><small>LOCK IN</small></main></body></html>
+p { line-height: 1.6; opacity: .7; } #return { font-size: 15px; } #return[hidden] { display: none; } small { display: block; margin-top: 55px; opacity: .5; letter-spacing: 3px; }
+</style></head><body><main><div class="mark">◎</div><h1>Give your attention<br>somewhere to land.</h1><p>This page is outside your focus time.<br>One thing at a time. You’ve got this.</p><p id="return" hidden>On a break? Refresh this page to return to <span id="host"></span>.</p><small>LOCK IN</small></main>
+<script>
+// Refreshing goes back to the page that was blocked. During work Lock In blocks it again; on a break it stays open.
+(() => {
+  let original = null;
+  try {
+    const url = new URL(new URLSearchParams(location.search).get("url"));
+    if (url.protocol === "https:" || url.protocol === "http:") original = url;
+  } catch {}
+  if (!original) return;
+  const navigation = performance.getEntriesByType("navigation")[0];
+  if (navigation && navigation.type === "reload") { location.replace(original.href); return; }
+  document.getElementById("host").textContent = original.host;
+  document.getElementById("return").hidden = false;
+})();
+</script></body></html>

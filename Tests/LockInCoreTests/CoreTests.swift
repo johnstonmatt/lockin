@@ -66,4 +66,12 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(restored.session!.locked)
         XCTAssertEqual(restored.profiles, state.profiles)
     }
+    func testBlockPageCarriesFullyEncodedOriginalURL() {
+        let original = "https://example.com/a b?x=1&y=2#frag"
+        let destination = BlockPage.destination(base: "file:///App/blocked.html", original: original)
+        XCTAssertEqual(destination, "file:///App/blocked.html?url=https%3A%2F%2Fexample.com%2Fa%20b%3Fx%3D1%26y%3D2%23frag")
+        let parsed = URLComponents(string: destination)
+        XCTAssertEqual(parsed?.queryItems?.count, 1)
+        XCTAssertEqual(parsed?.queryItems?.first?.value, original)
+    }
 }

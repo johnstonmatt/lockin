@@ -98,6 +98,8 @@ public struct JournalState: Codable {
     public var hours = 2.0
     public var sessions: [WorkLog] = []
     public var pendingReviewID: UUID?
+    /// The pause interval created by `lockin://update`; the next launch resumes work only if it is still the current interval.
+    public var resumeAfterUpdateID: UUID?
     public init() {}
 }
 

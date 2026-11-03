@@ -132,7 +132,7 @@ import LockInCore
                             try
                                 set targetTab to \(tabReference)
                                 if URL of targetTab is \(Self.literal(raw)) then
-                                    set URL of targetTab to \(Self.literal(destination))
+                                    set URL of targetTab to \(Self.literal(BlockPage.destination(base: destination, original: raw)))
                                     return true
                                 end if
                             on error errorText number errorCode

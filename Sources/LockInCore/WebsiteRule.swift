@@ -28,3 +28,13 @@ public enum WebsiteRule {
         return mode == .block ? match : !match
     }
 }
+
+/// The local page blocked tabs are redirected to. It carries the original URL so a refresh can return to it.
+public enum BlockPage {
+    /// Unreserved characters only: `&`, `=`, `#` and `?` in the original URL must not leak into the outer query.
+    private static let unreserved = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+    public static func destination(base: String, original: String) -> String {
+        guard let encoded = original.addingPercentEncoding(withAllowedCharacters: unreserved) else { return base }
+        return base + "?url=" + encoded
+    }
+}

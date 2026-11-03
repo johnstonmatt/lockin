@@ -100,4 +100,70 @@ final class SessionFlowTests: XCTestCase {
         let restored = Store(stateFile: directory.appendingPathComponent("preferences.json"), journalDirectory: directory, runTimer: false, enforceBlocking: false)
         XCTAssertEqual(restored.workLog?.todos.count, 3)
     }
+    @MainActor func testTasksCanBeEditedMidSession() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = Store(stateFile: directory.appendingPathComponent("preferences.json"), journalDirectory: directory, runTimer: false, enforceBlocking: false)
+        store.journal.draft = [Todo(title: "Typo taks")]
+        store.start()
+        let task = try XCTUnwrap(store.workLog?.todos.first)
+        XCTAssertFalse(store.updateTask(id: task.id, title: "  ", linearURL: ""))
+        XCTAssertFalse(store.updateTask(id: task.id, title: "Fixed", linearURL: "https://example.com"))
+        XCTAssertEqual(store.workLog?.todos.first?.title, "Typo taks")
+        XCTAssertFalse(store.updateTask(id: UUID(), title: "Unknown", linearURL: ""))
+        XCTAssertTrue(store.updateTask(id: task.id, title: " Fixed task ", linearURL: "https://linear.app/acme/issue/ABC-2"))
+        let edited = try XCTUnwrap(store.workLog?.todos.first)
+        XCTAssertEqual(edited.id, task.id, "editing keeps the task's identity")
+        XCTAssertEqual(edited.title, "Fixed task")
+        XCTAssertEqual(edited.linearURL, "https://linear.app/acme/issue/ABC-2")
+        let restored = Store(stateFile: directory.appendingPathComponent("preferences.json"), journalDirectory: directory, runTimer: false, enforceBlocking: false)
+        XCTAssertEqual(restored.workLog?.todos.first?.title, "Fixed task")
+    }
+    @MainActor private func makeStore(_ directory: URL) -> Store {
+        Store(stateFile: directory.appendingPathComponent("preferences.json"), journalDirectory: directory, runTimer: false, enforceBlocking: false)
+    }
+    @MainActor func testUpdatePausesQuitsAndResumesOnRelaunch() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = makeStore(directory)
+        var quits = 0; store.terminate = { quits += 1 }
+        store.journal.draft = [Todo(title: "Work")]
+        store.start()
+        store.handleURL(URL(string: "lockin://update")!)
+        XCTAssertEqual(quits, 1)
+        XCTAssertEqual(store.workLog?.phase, .pause)
+        XCTAssertEqual(store.workLog?.intervals.last?.reason, "Updating Lock In")
+        let relaunched = makeStore(directory)
+        XCTAssertEqual(relaunched.workLog?.phase, .work)
+        XCTAssertNil(relaunched.journal.resumeAfterUpdateID)
+        XCTAssertEqual(relaunched.workLog?.intervals.filter { $0.kind == .pause }.count, 1)
+    }
+    @MainActor func testUpdateLeavesYourOwnPauseAlone() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = makeStore(directory)
+        var quits = 0; store.terminate = { quits += 1 }
+        store.journal.draft = [Todo(title: "Work")]
+        store.start()
+        store.pause(reason: "Lunch")
+        store.quitForUpdate()
+        XCTAssertEqual(quits, 1)
+        XCTAssertNil(store.journal.resumeAfterUpdateID)
+        let relaunched = makeStore(directory)
+        XCTAssertEqual(relaunched.workLog?.phase, .pause)
+        XCTAssertEqual(relaunched.workLog?.intervals.last?.reason, "Lunch")
+    }
+    @MainActor func testUpdateIsRefusedInHardcoreMode() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = makeStore(directory)
+        var quits = 0; store.terminate = { quits += 1 }
+        store.journal.draft = [Todo(title: "Work")]
+        store.lockSession = true
+        store.start()
+        store.quitForUpdate()
+        XCTAssertEqual(quits, 0)
+        XCTAssertEqual(store.workLog?.phase, .work)
+        XCTAssertNotNil(store.message)
+    }
 }

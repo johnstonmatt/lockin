@@ -94,13 +94,9 @@ struct FocusView: View {
             }
             Card {
                 Text("This session’s tasks").font(.headline)
-                ForEach(log.todos) { todo in
-                    HStack { Image(systemName: todo.completed ? "checkmark.circle.fill" : "circle"); Text(todo.title); Spacer()
-                        if let url = URL(string: todo.linearURL), todo.validLink { Link("Linear ↗", destination: url) }
-                    }
-                }
+                ForEach(log.todos) { todo in SessionTaskRow(todo: todo) }
                 AddSessionTask()
-                Text("You can edit and carry tasks forward in the completion review.").font(.caption).foregroundStyle(.secondary)
+                Text("Mark tasks done and carry them forward in the completion review.").font(.caption).foregroundStyle(.secondary)
             }
         } else if store.journal.pendingReviewID != nil {
             Card { Text("Session complete").font(.title2); Text("Review your day and choose what comes next."); Button("Review day") { store.showReview = true }.buttonStyle(.borderedProminent) }
@@ -108,6 +104,40 @@ struct FocusView: View {
             PlannerView()
         }
         ProtectionStatus(blocker: store.blocker)
+    }
+}
+
+struct SessionTaskRow: View {
+    @EnvironmentObject var store: Store
+    let todo: Todo
+    @State private var editing = false
+    @State private var title = ""
+    @State private var link = ""
+    private var edited: Todo { var copy = todo; copy.title = title; copy.linearURL = link.trimmingCharacters(in: .whitespacesAndNewlines); return copy }
+    private var canSave: Bool { !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && edited.validLink }
+    var body: some View {
+        if editing {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    TextField("Task", text: $title).textFieldStyle(.roundedBorder).onSubmit(save)
+                    TextField("Linear issue URL (optional)", text: $link).textFieldStyle(.roundedBorder).onSubmit(save)
+                    Button("Cancel") { editing = false }.keyboardShortcut(.cancelAction)
+                    Button("Save", action: save).buttonStyle(.borderedProminent).disabled(!canSave)
+                }
+                if !edited.validLink { Text("Use an https://linear.app issue URL.").font(.caption).foregroundStyle(.red) }
+            }
+        } else {
+            HStack {
+                Image(systemName: todo.completed ? "checkmark.circle.fill" : "circle"); Text(todo.title); Spacer()
+                if let url = URL(string: todo.linearURL), todo.validLink, !todo.linearURL.isEmpty { Link("Linear ↗", destination: url) }
+                Button { title = todo.title; link = todo.linearURL; editing = true } label: { Image(systemName: "pencil") }
+                    .buttonStyle(.plain).help("Edit task").accessibilityLabel("Edit \(todo.title)")
+            }
+        }
+    }
+    private func save() {
+        guard canSave, store.updateTask(id: todo.id, title: title, linearURL: link) else { return }
+        editing = false
     }
 }
 
