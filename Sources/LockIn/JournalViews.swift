@@ -8,10 +8,10 @@ struct TodoEditor: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 if review { Toggle("Done", isOn: $todo.completed).toggleStyle(.checkbox) }
-                TextField("What are you working on?", text: $todo.title).textFieldStyle(.roundedBorder)
+                TextField("What are you working on?", text: $todo.title).textFieldStyle(.lockIn())
             }
             HStack {
-                TextField("Linear issue URL (optional)", text: $todo.linearURL).textFieldStyle(.roundedBorder)
+                TextField("Linear issue URL (optional)", text: $todo.linearURL).textFieldStyle(.lockIn(icon: "link", invalid: !todo.validLink))
                 if review { Toggle("Next session", isOn: $todo.rollForward).toggleStyle(.checkbox) }
             }
             if !todo.validLink { Text("Use an https://linear.app issue URL.").font(.caption).foregroundStyle(.red) }
@@ -34,7 +34,7 @@ struct PlannerView: View {
             Divider()
             HStack {
                 Text("Hours of work")
-                TextField("Hours", value: $store.journal.hours, format: .number).frame(width: 80).textFieldStyle(.roundedBorder)
+                TextField("Hours", value: $store.journal.hours, format: .number).multilineTextAlignment(.center).textFieldStyle(.lockIn()).frame(width: 80)
                 Stepper("", value: $store.journal.hours, in: 0.25...24, step: 0.25).labelsHidden()
                 Spacer()
                 Text("2 hours earns 10 minutes of break").font(.caption).foregroundStyle(.secondary)
@@ -54,9 +54,9 @@ struct PauseView: View {
         VStack(alignment: .leading, spacing: 18) {
             Label("Why are you pausing?", systemImage: "pause.circle").font(.title2)
             Text("Pauses don’t spend earned break time. Your reason and the time away will be saved in the session journal.").foregroundStyle(.secondary)
-            TextEditor(text: $reason).frame(height: 100).padding(8).overlay(RoundedRectangle(cornerRadius: 8).stroke(.quaternary))
+            TextEditor(text: $reason).frame(height: 100).lockInEditor()
             HStack { Button("Cancel") { store.showPause = false }; Spacer(); Button("Pause session") { store.pause(reason: reason) }.buttonStyle(.borderedProminent).disabled(reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
-        }.padding(28).frame(width: 480)
+        }.padding(28).frame(width: 480).clearsFieldFocusOnClick()
     }
 }
 struct EndSessionView: View {
@@ -69,14 +69,14 @@ struct EndSessionView: View {
                 Text("This ends the current session with \(Store.clock(log.remaining(at: store.now))) of its work target left. You’ll review it, choose which tasks carry forward, then plan a fresh session.").foregroundStyle(.secondary)
             }
             Text("Reason (saved in the session journal)").font(.caption).foregroundStyle(.secondary)
-            TextEditor(text: $reason).frame(height: 80).padding(8).overlay(RoundedRectangle(cornerRadius: 8).stroke(.quaternary))
+            TextEditor(text: $reason).frame(height: 80).lockInEditor()
             HStack {
                 Button("Cancel") { store.showEndSession = false }
                 Spacer()
                 Button("End session & review") { store.endSession(reason: reason) }.buttonStyle(.borderedProminent)
                     .disabled(reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-        }.padding(28).frame(width: 480)
+        }.padding(28).frame(width: 480).clearsFieldFocusOnClick()
     }
 }
 struct DayReviewView: View {
@@ -102,7 +102,7 @@ struct DayReviewView: View {
                 }
             }.frame(minHeight: 140)
             HStack { Text("Saved locally in ~/.lockin").font(.caption).foregroundStyle(.secondary); Spacer(); Button("Save & plan next session") { store.completeReview() }.buttonStyle(.borderedProminent) }
-        }.padding(28).frame(width: 720, height: 660)
+        }.padding(28).frame(width: 720, height: 660).clearsFieldFocusOnClick()
         .interactiveDismissDisabled()
         .onChange(of: store.reviewIndex.map { store.journal.sessions[$0].todos } ?? []) { _, _ in store.persistJournal() }
     }

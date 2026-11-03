@@ -4,8 +4,6 @@ import AppKit
 import LockInCore
 import UniformTypeIdentifiers
 
-private let accent = Color(red: 0.25, green: 0.68, blue: 0.53)
-
 struct MainView: View {
     @EnvironmentObject var store: Store
     var body: some View {
@@ -43,6 +41,7 @@ struct MainView: View {
                     case .settings: PreferencesView()
                     }
                 }.padding(32).frame(maxWidth: 950)
+                    .frame(maxWidth: .infinity).clearsFieldFocusOnClick()
             }.background(Color(nsColor: .windowBackgroundColor))
         }
         .sheet(isPresented: $store.showPause) { PauseView().environmentObject(store) }
@@ -119,8 +118,8 @@ struct SessionTaskRow: View {
         if editing {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    TextField("Task", text: $title).textFieldStyle(.roundedBorder).onSubmit(save)
-                    TextField("Linear issue URL (optional)", text: $link).textFieldStyle(.roundedBorder).onSubmit(save)
+                    TextField("Task", text: $title).textFieldStyle(.lockIn()).onSubmit(save)
+                    TextField("Linear issue URL (optional)", text: $link).textFieldStyle(.lockIn(icon: "link", invalid: !edited.validLink)).onSubmit(save)
                     Button("Cancel") { editing = false }.keyboardShortcut(.cancelAction)
                     Button("Save", action: save).buttonStyle(.borderedProminent).disabled(!canSave)
                 }
@@ -150,8 +149,8 @@ struct AddSessionTask: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                TextField("Add a task…", text: $title).textFieldStyle(.roundedBorder).onSubmit(add)
-                TextField("Linear issue URL (optional)", text: $link).textFieldStyle(.roundedBorder).onSubmit(add)
+                TextField("Add a task…", text: $title).textFieldStyle(.lockIn(icon: "plus")).onSubmit(add)
+                TextField("Linear issue URL (optional)", text: $link).textFieldStyle(.lockIn(icon: "link", invalid: !draft.validLink)).onSubmit(add)
                 Button("Add", systemImage: "plus", action: add).disabled(!canAdd)
             }
             if !draft.validLink { Text("Use an https://linear.app issue URL.").font(.caption).foregroundStyle(.red) }
@@ -240,7 +239,7 @@ struct DistractionsView: View {
             Text(store.profile.blockingMode == .block ? "Matching domains and their subdomains are blocked. You can include a path." : "All HTTP/S pages except these rules are blocked in supported browsers.")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
-                TextField("e.g. reddit.com or youtube.com/shorts", text: $website).textFieldStyle(.roundedBorder).onSubmit(add)
+                TextField("e.g. reddit.com or youtube.com/shorts", text: $website).textFieldStyle(.lockIn(icon: "globe")).onSubmit(add)
                 Button("Add", action: add).disabled(website.trimmingCharacters(in: .whitespaces).isEmpty)
             }.disabled(!store.canEdit && !(store.active && store.state.session?.profile.blockingMode == .block))
             ForEach(store.state.session?.profile.websites ?? store.profile.websites, id: \.self) { rule in

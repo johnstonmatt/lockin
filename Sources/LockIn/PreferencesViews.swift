@@ -79,7 +79,7 @@ struct PreferencesView: View {
             Text("Protect preference changes with a password. Hardcore sessions cannot be unlocked with this password.")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
-                SecureField(store.profile.passwordHash == nil ? "Set a password" : "Password", text: $password).textFieldStyle(.roundedBorder)
+                SecureField(store.profile.passwordHash == nil ? "Set a password" : "Password", text: $password).textFieldStyle(.lockIn(icon: "lock"))
                 if store.profile.passwordHash == nil {
                     Button("Protect") { store.setPassword(password); password = "" }.disabled(password.isEmpty || !store.canEdit)
                 } else if store.unlockedProfiles.contains(store.profile.id) {
@@ -97,8 +97,7 @@ struct PreferencesView: View {
                 Text("Break starts").tag("break"); Text("Focus resumes").tag("resume"); Text("Session pauses").tag("pause")
             }
             TextEditor(text: Binding(get: { store.profile.hooks[event] ?? "" }, set: { value in store.updateProfile { $0.hooks[event] = value } }))
-                .font(.system(.body, design: .monospaced)).frame(height: 110).padding(6)
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary)).disabled(!store.canEdit)
+                .font(.system(.body, design: .monospaced)).frame(height: 110).lockInEditor().disabled(!store.canEdit)
             Text("Optional shell commands run as your user through /bin/zsh. Available variables: LOCKIN_EVENT, LOCKIN_PROFILE, LOCKIN_MODE. Leave blank to do nothing.")
                 .font(.caption).foregroundStyle(.secondary)
         }
