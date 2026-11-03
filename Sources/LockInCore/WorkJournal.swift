@@ -1,5 +1,11 @@
 import Foundation
 
+extension String {
+    /// Trimmed of surrounding whitespace and newlines, as user-entered text is saved.
+    public var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
+    public var isBlank: Bool { trimmed.isEmpty }
+}
+
 public struct Todo: Identifiable, Codable, Equatable, Sendable {
     public var id = UUID()
     public var title = ""
@@ -12,10 +18,10 @@ public struct Todo: Identifiable, Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey { case id, title, link = "linearURL", completed, rollForward, sourceTodoID }
     public init(title: String = "") { self.title = title }
     public static let linkRequirement = "Use a full web link, starting with https://"
-    /// Blank, or an http(s) URL with a host.
+    /// Blank, or an http(s) URL with a host. Surrounding whitespace is ignored, as it is trimmed on save.
     public static func isValidLink(_ text: String) -> Bool {
-        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
-        guard let url = URL(string: text), ["https", "http"].contains(url.scheme?.lowercased() ?? ""),
+        if text.isBlank { return true }
+        guard let url = URL(string: text.trimmed), ["https", "http"].contains(url.scheme?.lowercased() ?? ""),
               let host = url.host, !host.isEmpty else { return false }
         return true
     }
@@ -30,12 +36,14 @@ public struct Todo: Identifiable, Codable, Equatable, Sendable {
         let host = url.host ?? link
         return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
-    public var hasTitle: Bool { !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    public var hasTitle: Bool { !title.isBlank }
+    /// Has a title and a usable (or no) link: what a task needs before it can be saved.
+    public var isValid: Bool { hasTitle && validLink }
     /// A copy with user-entered fields applied and trimmed; identity and lineage are kept.
     public func with(title: String, link: String) -> Todo {
         var copy = self
-        copy.title = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        copy.link = link.trimmingCharacters(in: .whitespacesAndNewlines)
+        copy.title = title.trimmed
+        copy.link = link.trimmed
         return copy
     }
 }
@@ -99,9 +107,8 @@ public struct WorkLog: Identifiable, Codable, Sendable {
         intervals.append(WorkInterval(kind: phase, start: now, reason: reason))
     }
     public mutating func pause(reason: String, at now: Date) -> Bool {
-        let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, endedAt == nil, phase != .pause else { return false }
-        transition(to: .pause, at: now, reason: trimmed); return true
+        guard !reason.isBlank, endedAt == nil, phase != .pause else { return false }
+        transition(to: .pause, at: now, reason: reason.trimmed); return true
     }
     public mutating func takeBreak(at now: Date) -> Bool {
         guard phase == .work, breakBalance(at: now) >= 1 else { return false }
@@ -113,9 +120,8 @@ public struct WorkLog: Identifiable, Codable, Sendable {
     }
     /// Ends an open session before its target, e.g. to start a new day. Requires a nonblank explanation.
     public mutating func endEarly(reason: String, at now: Date) -> Bool {
-        let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, endedAt == nil else { return false }
-        endReason = trimmed
+        guard !reason.isBlank, endedAt == nil else { return false }
+        endReason = reason.trimmed
         finish(at: now, natural: false); return true
     }
     /// The last moment of work or break, so an overnight pause doesn't make the review show the wrong day.
@@ -158,19 +164,48 @@ public enum SessionYAML {
         let data = try! JSONEncoder().encode(value)
         return String(decoding: data, as: UTF8.self)
     }
-    private static func date(_ value: Date?) -> String {
-        guard let value else { return "null" }
-        return quoted(ISO8601DateFormatter().string(from: value))
-    }
+    private static func quoted(_ value: String?) -> String { value.map(quoted) ?? "null" }
+    /// ISO 8601 in UTC, e.g. "2026-11-03T09:00:00Z".
+    private static func date(_ value: Date?) -> String { quoted(value?.formatted(.iso8601)) }
     public static func encode(_ log: WorkLog, at now: Date) -> String {
+        let worked = log.seconds(.work, at: now)
         // Version 2: a task's `linear_url` became `link`, plus `link_service`.
-        var lines = ["schema_version: 2", "id: \(quoted(log.id.uuidString))", "started_at: \(date(log.startedAt))", "ended_at: \(date(log.endedAt))", "target_work_seconds: \(log.targetSeconds)", "finished_naturally: \(log.finishedNaturally)", "end_reason: \(log.endReason.map(quoted) ?? "null")", "reviewed: \(log.reviewed)", "work_seconds: \(log.seconds(.work, at: now))", "break_seconds: \(log.seconds(.break, at: now))", "pause_seconds: \(log.seconds(.pause, at: now))", "earned_break_seconds: \(log.seconds(.work, at: now) / 12)", "remaining_break_seconds: \(log.breakBalance(at: now))", "todos:\(log.todos.isEmpty ? " []" : "")"]
+        var lines = [
+            "schema_version: 2",
+            "id: \(quoted(log.id.uuidString))",
+            "started_at: \(date(log.startedAt))",
+            "ended_at: \(date(log.endedAt))",
+            "target_work_seconds: \(log.targetSeconds)",
+            "finished_naturally: \(log.finishedNaturally)",
+            "end_reason: \(quoted(log.endReason))",
+            "reviewed: \(log.reviewed)",
+            "work_seconds: \(worked)",
+            "break_seconds: \(log.seconds(.break, at: now))",
+            "pause_seconds: \(log.seconds(.pause, at: now))",
+            "earned_break_seconds: \(worked / 12)",
+            "remaining_break_seconds: \(log.breakBalance(at: now))",
+            "todos:\(log.todos.isEmpty ? " []" : "")",
+        ]
         for todo in log.todos {
-            lines += ["  - id: \(quoted(todo.id.uuidString))", "    title: \(quoted(todo.title))", "    link: \(todo.link.isEmpty ? "null" : quoted(todo.link))", "    link_service: \(todo.linkService.map { quoted($0.rawValue) } ?? "null")", "    completed: \(todo.completed)", "    roll_into_next_session: \(todo.rollForward)", "    source_todo_id: \(todo.sourceTodoID.map { quoted($0.uuidString) } ?? "null")"]
+            lines += [
+                "  - id: \(quoted(todo.id.uuidString))",
+                "    title: \(quoted(todo.title))",
+                "    link: \(quoted(todo.link.isEmpty ? nil : todo.link))",
+                "    link_service: \(quoted(todo.linkService?.rawValue))",
+                "    completed: \(todo.completed)",
+                "    roll_into_next_session: \(todo.rollForward)",
+                "    source_todo_id: \(quoted(todo.sourceTodoID?.uuidString))",
+            ]
         }
         lines.append("intervals:")
         for interval in log.intervals {
-            lines += ["  - kind: \(interval.kind.rawValue)", "    started_at: \(date(interval.start))", "    ended_at: \(date(interval.end))", "    duration_seconds: \(interval.seconds(at: now))", "    reason: \(interval.reason.map(quoted) ?? "null")"]
+            lines += [
+                "  - kind: \(interval.kind.rawValue)",
+                "    started_at: \(date(interval.start))",
+                "    ended_at: \(date(interval.end))",
+                "    duration_seconds: \(interval.seconds(at: now))",
+                "    reason: \(quoted(interval.reason))",
+            ]
         }
         return lines.joined(separator: "\n") + "\n"
     }

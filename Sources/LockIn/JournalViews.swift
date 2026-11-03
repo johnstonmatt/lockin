@@ -27,10 +27,10 @@ struct PlannerView: View {
             ForEach($store.journal.draft) { $todo in
                 HStack(alignment: .top) {
                     TodoEditor(todo: $todo)
-                    Button { store.journal.draft.removeAll { $0.id == todo.id }; store.persistJournal() } label: { Image(systemName: "minus.circle") }.buttonStyle(.pointer(.plain)).padding(.top, 12).accessibilityLabel("Remove task")
+                    Button { store.journal.draft.removeAll { $0.id == todo.id } } label: { Image(systemName: "minus.circle") }.buttonStyle(.pointer(.plain)).padding(.top, 12).accessibilityLabel("Remove task")
                 }
             }
-            Button("Add task", systemImage: "plus") { store.journal.draft.append(Todo()); store.persistJournal() }
+            Button("Add task", systemImage: "plus") { store.journal.draft.append(Todo()) }
             Divider()
             HStack {
                 Text("Hours of work")
@@ -43,6 +43,7 @@ struct PlannerView: View {
             Toggle("Hardcore Mode", isOn: $store.lockSession).toggleStyle(.checkbox)
             Button("Start session", systemImage: "play.fill") { store.start() }.buttonStyle(.pointer(.borderedProminent)).controlSize(.large)
         }
+        // Every draft edit, including adding and removing tasks, is saved here.
         .onChange(of: store.journal.draft) { _, _ in store.persistJournal() }
         .onChange(of: store.journal.hours) { _, value in if value.isFinite { store.persistJournal() } }
     }
@@ -55,7 +56,7 @@ struct PauseView: View {
             Label("Why are you pausing?", systemImage: "pause.circle").font(.title2)
             Text("Pauses don’t spend earned break time. Your reason and the time away will be saved in the session journal.").foregroundStyle(.secondary)
             TextEditor(text: $reason).frame(height: 100).lockInEditor()
-            HStack { Button("Cancel") { store.showPause = false }; Spacer(); Button("Pause session") { store.pause(reason: reason) }.buttonStyle(.pointer(.borderedProminent)).disabled(reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
+            HStack { Button("Cancel") { store.showPause = false }; Spacer(); Button("Pause session") { store.pause(reason: reason) }.buttonStyle(.pointer(.borderedProminent)).disabled(reason.isBlank) }
         }.padding(28).frame(width: 480).clearsFieldFocusOnClick()
     }
 }
@@ -74,7 +75,7 @@ struct EndSessionView: View {
                 Button("Cancel") { store.showEndSession = false }
                 Spacer()
                 Button("End session & review") { store.endSession(reason: reason) }.buttonStyle(.pointer(.borderedProminent))
-                    .disabled(reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(reason.isBlank)
             }
         }.padding(28).frame(width: 480).clearsFieldFocusOnClick()
     }
@@ -97,7 +98,7 @@ struct DayReviewView: View {
                         Text("Update your TODOs").font(.headline)
                         Text("Choose “Next session” for each task you want to carry forward. It will be copied into the next plan; this session’s record stays intact.").font(.caption).foregroundStyle(.secondary)
                         ForEach($store.journal.sessions[index].todos) { $todo in TodoEditor(todo: $todo, review: true) }
-                        Button("Add task", systemImage: "plus") { store.journal.sessions[index].todos.append(Todo()); store.persistJournal() }
+                        Button("Add task", systemImage: "plus") { store.journal.sessions[index].todos.append(Todo()) }
                     }
                 }
             }.frame(minHeight: 140)

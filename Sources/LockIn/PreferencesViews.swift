@@ -2,63 +2,6 @@ import SwiftUI
 import ServiceManagement
 import LockInCore
 
-struct SchedulesView: View {
-    @EnvironmentObject var store: Store
-    var body: some View {
-        Card {
-            HStack {
-                Text("Your weekly routine").font(.headline); Spacer()
-                Button("Add schedule", systemImage: "plus") {
-                    store.state.schedules.append(Schedule(profileID: store.profile.id)); store.save()
-                }.disabled(!store.canEdit)
-            }
-            if store.state.schedules.isEmpty {
-                ContentUnavailableView("A little consistency", systemImage: "calendar.badge.clock", description: Text("Add a schedule to start focus automatically on the days you choose."))
-            }
-            ForEach($store.state.schedules) { $schedule in
-                ScheduleRow(schedule: $schedule) {
-                    store.state.schedules.removeAll { $0.id == schedule.id }; store.save()
-                }.disabled(!store.canEdit)
-                Divider()
-            }
-        }.onChange(of: store.state.schedules) { _, _ in store.save() }
-        Text("Schedules remind you to plan a session. They never start work automatically or skip your task list and completion review.")
-            .font(.caption).foregroundStyle(.secondary)
-    }
-}
-
-struct ScheduleRow: View {
-    @Binding var schedule: Schedule
-    var delete: () -> Void
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Toggle("Enabled", isOn: $schedule.enabled).toggleStyle(.switch).controlSize(.small)
-                Spacer()
-                Button(role: .destructive, action: delete) { Image(systemName: "trash") }.buttonStyle(.pointer(.plain)).accessibilityLabel("Delete schedule")
-            }
-            HStack {
-                DatePicker("Start", selection: Binding(get: {
-                    Calendar.current.date(bySettingHour: schedule.hour, minute: schedule.minute, second: 0, of: Date()) ?? Date()
-                }, set: { date in
-                    schedule.hour = Calendar.current.component(.hour, from: date)
-                    schedule.minute = Calendar.current.component(.minute, from: date)
-                }), displayedComponents: .hourAndMinute)
-                Stepper("\(schedule.duration) min", value: $schedule.duration, in: 5...480, step: 5)
-                Toggle("Hardcore", isOn: $schedule.locked).toggleStyle(.checkbox)
-            }
-            HStack(spacing: 7) {
-                ForEach(1...7, id: \.self) { day in
-                    Button(Calendar.current.shortWeekdaySymbols[day - 1]) {
-                        if schedule.weekdays.contains(day) { schedule.weekdays.remove(day) } else { schedule.weekdays.insert(day) }
-                    }.buttonStyle(.pointer(.bordered)).tint(schedule.weekdays.contains(day) ? .green : .gray)
-                        .accessibilityValue(schedule.weekdays.contains(day) ? "Selected" : "Not selected")
-                }
-            }
-        }.padding(.vertical, 8)
-    }
-}
-
 struct PreferencesView: View {
     @EnvironmentObject var store: Store
     @State private var password = ""

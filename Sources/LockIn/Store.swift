@@ -17,6 +17,8 @@ import LockInCore
     @Published var showPlanner = false
     private var journalWritable = true
     private var lastCheckpoint = Date.distantPast
+    /// The YAML last written for each session, so finished sessions aren't rewritten on every checkpoint.
+    private var writtenYAML: [UUID: String] = [:]
     private let journalDirectory: URL
     /// Replaceable so tests can exercise update handling without quitting the test runner.
     var terminate: () -> Void = { NSApp?.terminate(nil) }
@@ -29,13 +31,12 @@ import LockInCore
     private var storageAvailable = true
     private let file: URL
     enum Page: String, CaseIterable, Identifiable {
-        case focus = "Focus", distractions = "Distractions", schedules = "Schedule", insights = "Insights", settings = "Settings"
+        case focus = "Focus", distractions = "Distractions", insights = "Insights", settings = "Settings"
         var id: String { rawValue }
         var icon: String {
             switch self {
             case .focus: return "scope"
             case .distractions: return "hand.raised"
-            case .schedules: return "calendar"
             case .insights: return "chart.bar.xaxis"
             case .settings: return "slider.horizontal.3"
             }
@@ -97,7 +98,7 @@ import LockInCore
     func deleteProfile() {
         guard canEdit, state.profiles.count > 1 else { return }
         let id = profile.id
-        state.profiles.removeAll { $0.id == id }; state.schedules.removeAll { $0.profileID == id }
+        state.profiles.removeAll { $0.id == id }
         state.selectedProfileID = state.profiles[0].id; save()
     }
     func addWebsite(_ raw: String) {
@@ -122,7 +123,7 @@ import LockInCore
         let log = WorkLog(todos: todos, targetSeconds: journal.hours * 3600, now: Date())
         journal.sessions.append(log)
         guard persistJournal() else { journal.sessions.removeLast(); return }
-        state.session = FocusSession(profile: profile, locked: lockSession, startedAt: log.startedAt)
+        state.session = FocusSession(profile: profile, locked: lockSession)
         showPlanner = false; runHook("start"); save(); tick()
     }
     func stop() {
@@ -210,14 +211,10 @@ import LockInCore
         }
         // The review is presented once the end-session sheet has dismissed (see MainView); swapping sheets in one update is unreliable.
         conclude(journal.sessions[index], presentReview: !showEndSession)
-        showEndSession = false
     }
     private func conclude(_ log: WorkLog, presentReview: Bool = true) {
         runHook("stop"); state.session = nil; blocker.deactivate()
         journal.pendingReviewID = log.id; showReview = presentReview; showPause = false; showEndSession = false; page = .focus
-        for interval in log.intervals where interval.kind == .work {
-            state.records.append(FocusRecord(profileName: "Focus", start: interval.start, end: interval.end ?? now, completed: log.finishedNaturally))
-        }
         saveAll(); NSApp?.showMainWindow()
     }
     private var activeLogIndex: Int? { journal.sessions.lastIndex { $0.endedAt == nil } }
@@ -236,14 +233,6 @@ import LockInCore
                 saveAll()
             }
         }
-        // A schedule prompts for a plan; it must never bypass task entry or the previous review.
-        if !active && journal.pendingReviewID == nil {
-            for schedule in state.schedules {
-                guard let occurrence = schedule.occurrence(at: now), state.firedSchedules[schedule.id.uuidString] != occurrence else { continue }
-                state.firedSchedules[schedule.id.uuidString] = occurrence
-                showPlanner = true; page = .focus; save(); break
-            }
-        }
         if let session = state.session, workLog?.phase == .work, enforceBlocking { blocker.enforce(profile: session.profile) }
         else { blocker.deactivate() }
     }
@@ -253,8 +242,8 @@ import LockInCore
             if FileManager.default.fileExists(atPath: snapshot.path) {
                 journal = try JSONDecoder().decode(JournalState.self, from: Data(contentsOf: snapshot))
             }
-            if let log = workLog {
-                if state.session == nil { state.session = FocusSession(profile: profile, locked: false, startedAt: log.startedAt) }
+            if workLog != nil {
+                if state.session == nil { state.session = FocusSession(profile: profile, locked: false) }
                 // Time while the app was not running earns no credit. Preserve it as an interruption.
                 if let checkpoint = try? FileManager.default.attributesOfItem(atPath: snapshot.path)[.modificationDate] as? Date,
                    Date().timeIntervalSince(checkpoint) > 15 {
@@ -287,8 +276,10 @@ import LockInCore
         do {
             try FileManager.default.createDirectory(at: journalDirectory, withIntermediateDirectories: true)
             for log in journal.sessions {
-                let name = "session-" + log.id.uuidString + ".yaml"
-                try SessionYAML.encode(log, at: now).write(to: journalDirectory.appendingPathComponent(name), atomically: true, encoding: .utf8)
+                let yaml = SessionYAML.encode(log, at: now)
+                guard writtenYAML[log.id] != yaml else { continue }
+                try yaml.write(to: journalDirectory.appendingPathComponent("session-\(log.id).yaml"), atomically: true, encoding: .utf8)
+                writtenYAML[log.id] = yaml
             }
             try Self.encoder.encode(journal).write(to: journalDirectory.appendingPathComponent("state.json"), options: .atomic)
             lastCheckpoint = Date(); return true
@@ -321,7 +312,7 @@ import LockInCore
         return data.base64EncodedString()
     }
     private func runHook(_ event: String) {
-        guard let session = state.session, let script = session.profile.hooks[event], !script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard let session = state.session, let script = session.profile.hooks[event], !script.isBlank else { return }
         let process = Process(); process.executableURL = URL(fileURLWithPath: "/bin/zsh"); process.arguments = ["-c", script]
         process.environment = ProcessInfo.processInfo.environment.merging([
             // LOCKIN_MODE is kept for existing hook scripts; every session is now a timed work target.
@@ -343,10 +334,22 @@ import LockInCore
     }
 }
 
+enum MainWindow {
+    static let id = "main"
+}
+
+extension OpenWindowAction {
+    /// Opens (or focuses) the main window and brings Lock In forward, e.g. from the menu bar panel.
+    @MainActor func main() {
+        self(id: MainWindow.id)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
 extension NSApplication {
     /// Brings Lock In forward with its main window, e.g. for a review or a pause prompt.
     func showMainWindow() {
         activate(ignoringOtherApps: true)
-        windows.first { $0.identifier?.rawValue == "main" }?.makeKeyAndOrderFront(nil)
+        windows.first { $0.identifier?.rawValue == MainWindow.id }?.makeKeyAndOrderFront(nil)
     }
 }

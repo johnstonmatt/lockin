@@ -164,4 +164,19 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertEqual(store.workLog?.todos.map(\.title), ["Keep"])
         XCTAssertEqual(makeStore().workLog?.todos.map(\.title), ["Keep"], "the deletion is saved")
     }
+    @MainActor func testFinishedSessionsAreNotRewrittenOnEveryCheckpoint() throws {
+        let store = makeStore()
+        store.journal.draft = [Todo(title: "First")]
+        store.start()
+        let id = try XCTUnwrap(store.workLog?.id)
+        store.endSession(reason: "Done")
+        store.completeReview()
+        let file = directory.appendingPathComponent("session-\(id).yaml")
+        try "edited elsewhere".write(to: file, atomically: true, encoding: .utf8)
+        store.journal.draft = [Todo(title: "Second")]
+        store.start()
+        store.saveAll()
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "edited elsewhere", "an unchanged session is skipped")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("session-\(try XCTUnwrap(store.workLog?.id)).yaml").path))
+    }
 }
