@@ -19,6 +19,8 @@ public enum RemoteCommand: Codable, Equatable, Sendable {
     /// Records the range as work afterwards; see `JournalState.backfill`.
     case backfill(start: Date, end: Date)
     case undoBackfill
+    /// Records a note on the running session.
+    case addEvent(text: String)
 }
 
 public struct RemoteReply: Codable, Equatable, Sendable {
@@ -31,9 +33,17 @@ public struct RemoteReply: Codable, Equatable, Sendable {
 
 /// Wire format. Distributed notifications only carry property-list values, so payloads are JSON strings.
 /// The notification `object` is the request ID, which the reply echoes so concurrent CLI calls don't cross.
-public enum RemoteChannel {
-    public static let request = Notification.Name("app.lockin.mac.remote.request")
-    public static let reply = Notification.Name("app.lockin.mac.remote.reply")
+///
+/// Distributed notifications are system-wide, so the channel's name is what keeps listeners apart:
+/// the CLI and the app use `.app`, and tests use a channel of their own so a running Lock In can't hear them.
+public struct RemoteChannel: Sendable {
+    public static let app = RemoteChannel(name: "app.lockin.mac.remote")
+    public let request: Notification.Name
+    public let reply: Notification.Name
+    public init(name: String) {
+        request = Notification.Name(name + ".request")
+        reply = Notification.Name(name + ".reply")
+    }
     public static let payloadKey = "payload"
 
     public static func encode<T: Encodable>(_ value: T) -> [String: String] {

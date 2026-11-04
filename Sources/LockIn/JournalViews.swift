@@ -44,8 +44,8 @@ struct PlannerView: View {
             Button("Start session", systemImage: "play.fill") { store.start() }.buttonStyle(.pointer(.borderedProminent)).controlSize(.large)
         }
         // Every draft edit, including adding and removing tasks, is saved here.
-        .onChange(of: store.journal.draft) { _, _ in store.persistJournal() }
-        .onChange(of: store.journal.hours) { _, value in if value.isFinite { store.persistJournal() } }
+        .onChange(of: store.journal.draft) { _, _ in store.persist() }
+        .onChange(of: store.journal.hours) { _, value in if value.isFinite { store.persist() } }
     }
 }
 struct PauseView: View {
@@ -67,7 +67,7 @@ struct EndSessionView: View {
         VStack(alignment: .leading, spacing: 18) {
             Label("Start a new day?", systemImage: "sunrise").font(.title2)
             if let log = store.workLog {
-                Text("This ends the current session with \(Store.clock(log.remaining(at: store.now))) of its work target left. You’ll review it, choose which tasks carry forward, then plan a fresh session.").foregroundStyle(.secondary)
+                Text("This ends the current session with \(WorkStats.clock(log.remaining(at: store.now))) of its work target left. You’ll review it, choose which tasks carry forward, then plan a fresh session.").foregroundStyle(.secondary)
             }
             Text("Reason (saved in the session journal)").font(.caption).foregroundStyle(.secondary)
             TextEditor(text: $reason).frame(height: 80).lockInEditor()
@@ -105,6 +105,6 @@ struct DayReviewView: View {
             HStack { Text("Saved locally in ~/.lockin").font(.caption).foregroundStyle(.secondary); Spacer(); Button("Save & plan next session") { store.completeReview() }.buttonStyle(.pointer(.borderedProminent)) }
         }.padding(28).frame(width: 720, height: 660).clearsFieldFocusOnClick()
         .interactiveDismissDisabled()
-        .onChange(of: store.reviewIndex.map { store.journal.sessions[$0].todos } ?? []) { _, _ in store.persistJournal() }
+        .onChange(of: store.reviewIndex.map { store.journal.sessions[$0].todos } ?? []) { _, _ in store.persist() }
     }
 }

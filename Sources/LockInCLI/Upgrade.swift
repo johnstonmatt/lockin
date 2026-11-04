@@ -86,7 +86,7 @@ enum Upgrade {
     }
 
     private static func fetch(_ request: URLRequest) throws -> Data {
-        let result = Box<Result<Data, Error>>()
+        let result = Box<Result<Data, Error>?>(nil)
         let done = DispatchSemaphore(value: 0)
         URLSession.shared.dataTask(with: request) { data, response, error in
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -115,5 +115,3 @@ enum Upgrade {
         guard process.terminationStatus == 0 else { throw UsageError("\((path as NSString).lastPathComponent) failed.") }
     }
 }
-
-private final class Box<T>: @unchecked Sendable { var value: T? }

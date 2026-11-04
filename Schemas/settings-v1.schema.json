@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/johnstonmatt/lockin/main/Schemas/settings-v1.schema.json",
+  "title": "Lock In settings",
+  "description": "Everything Lock In keeps that isn't a session, stored as ~/.lockin/settings.json: profiles, the plan for the next session, and bookkeeping between launches. If this file can't be read, Lock In saves nothing until it's fixed, so it's never overwritten.",
+  "type": "object",
+  "required": ["schema_version", "profiles", "plan"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string", "description": "This schema's URL, for editors that validate JSON." },
+    "schema_version": { "const": 1 },
+    "profiles": { "type": "array", "items": { "$ref": "#/$defs/profile" } },
+    "selected_profile_id": { "$ref": "session-v1.schema.json#/$defs/uuid" },
+    "active_session": {
+      "type": "object",
+      "description": "What the open session enforces. Present only while a session is open.",
+      "required": ["profile", "hardcore"],
+      "additionalProperties": false,
+      "properties": {
+        "profile": { "$ref": "#/$defs/profile", "description": "A copy of the profile taken when the session started, so editing the profile doesn't change what's enforced." },
+        "hardcore": { "type": "boolean", "description": "Hardcore Mode: the session can't be ended, paused for an update or quit until its target is reached." }
+      }
+    },
+    "plan": {
+      "type": "object",
+      "description": "The next session, as planned on the Focus page.",
+      "required": ["target_hours", "tasks"],
+      "additionalProperties": false,
+      "properties": {
+        "target_hours": { "type": "number" },
+        "tasks": { "type": "array", "items": { "$ref": "session-v1.schema.json#/$defs/task" } }
+      }
+    },
+    "pending_review_session_id": { "$ref": "session-v1.schema.json#/$defs/uuid", "description": "The finished session waiting for its review." },
+    "resume_after_update_interval_id": {
+      "$ref": "session-v1.schema.json#/$defs/uuid",
+      "description": "The pause an update created. On the next launch, work resumes if that pause is still the current interval."
+    },
+    "last_backfill": {
+      "type": "object",
+      "description": "What the last `lockin backfill` changed, so `lockin backfill --undo` can put it back.",
+      "required": ["session_id", "created_session", "previous_started_at", "previous_intervals", "at"],
+      "additionalProperties": false,
+      "properties": {
+        "session_id": { "$ref": "session-v1.schema.json#/$defs/uuid" },
+        "created_session": { "type": "boolean", "description": "The backfill created the session, so undoing it removes the session." },
+        "previous_started_at": { "$ref": "session-v1.schema.json#/$defs/timestamp" },
+        "previous_intervals": { "type": "array", "items": { "$ref": "session-v1.schema.json#/$defs/interval" } },
+        "at": { "$ref": "session-v1.schema.json#/$defs/timestamp" }
+      }
+    }
+  },
+  "$defs": {
+    "profile": {
+      "type": "object",
+      "required": ["id", "name", "symbol", "websites", "applications", "blocking_mode", "hooks"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "session-v1.schema.json#/$defs/uuid" },
+        "name": { "type": "string" },
+        "symbol": { "type": "string", "description": "An SF Symbols name." },
+        "websites": { "type": "array", "items": { "type": "string" }, "description": "Rules such as reddit.com or youtube.com/shorts. Subdomains match; paths match by prefix." },
+        "applications": {
+          "type": "array",
+          "description": "Apps hidden while focusing.",
+          "items": {
+            "type": "object",
+            "required": ["name", "bundle_id"],
+            "additionalProperties": false,
+            "properties": { "name": { "type": "string" }, "bundle_id": { "type": "string" } }
+          }
+        },
+        "blocking_mode": { "enum": ["block", "allow"], "description": "block: the websites are blocked. allow: everything except the websites is blocked." },
+        "hooks": {
+          "type": "object",
+          "description": "Shell scripts run through /bin/zsh, by event: start, stop, overtime, break, resume, pause.",
+          "additionalProperties": { "type": "string" }
+        },
+        "password_salt": { "type": "string" },
+        "password_hash": { "type": "string", "description": "Gates editing the profile. Not a security boundary." }
+      }
+    }
+  }
+}

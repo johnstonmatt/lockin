@@ -21,6 +21,7 @@ enum Invocation: Equatable {
     case upgrade
     case backfill(range: String)
     case undoBackfill
+    case addEvent(text: String)
 }
 
 /// A task as typed: "title", "link", or "title - link". At least one part is set.
@@ -60,6 +61,9 @@ let usage = """
       task undo <n>            Mark a task not done
       task rm <n>              Remove a task
 
+    Events
+      event add <text>         Record something that happened during the session, with the time
+
     History
       history [-n N]           The last N sessions (default 7)
       backfill <range>         Record time you worked without Lock In counting it, such as
@@ -93,7 +97,7 @@ func parse(_ arguments: [String]) throws -> Invocation {
         try noMore(args, command); return .history(count: count)
     case "start":
         let hours = try take(option: ["--hours"], from: &args).map { value -> Double in
-            guard let hours = Double(value), hours.isFinite, hours > 0, hours <= 24 else {
+            guard let hours = Double(value), JournalState.isValidTarget(hours: hours) else {
                 throw UsageError("--hours needs a number between 0 and 24.")
             }
             return hours
@@ -105,6 +109,7 @@ func parse(_ arguments: [String]) throws -> Invocation {
     case "finish": try noMore(args, command); return .finish
     case "end": return .end(reason: try single(args, "end", missing: "Say why you're ending early: lockin end <reason>"))
     case "task": return try parseTask(args)
+    case "event": return try parseEvent(args)
     case "upgrade": try noMore(args, command); return .upgrade
     case "backfill":
         if take(flag: "--undo", from: &args) { try noMore(args, command); return .undoBackfill }
@@ -131,6 +136,12 @@ private func parseTask(_ arguments: [String]) throws -> Invocation {
     case "rm", "remove", "delete": return .deleteTask(number: try number(args, action))
     default: throw UsageError("Unknown task action “\(action)”. Use add, a task number, done, undo or rm.")
     }
+}
+
+private func parseEvent(_ arguments: [String]) throws -> Invocation {
+    var args = arguments
+    guard !args.isEmpty, args.removeFirst() == "add" else { throw UsageError("Usage: lockin event add <text>") }
+    return .addEvent(text: try single(args, "event add", missing: "Say what happened: lockin event add \"<text>\""))
 }
 
 /// Free text such as a reason or task: exactly one argument, so text with spaces must be quoted.

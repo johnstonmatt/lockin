@@ -43,9 +43,16 @@ Open Lock In, enter your TODOs (each can have an optional link, shown as Linear,
 
 ## Journal files
 
-`~/.lockin/session-<UUID>.yaml` contains each session’s target, TODOs, optional links (with the recognized service), completion and rollover flags, and chronological work/break/pause intervals (including pause explanations). Timestamps use ISO 8601 UTC. Open intervals have `ended_at: null`; total durations are checkpointed every ten seconds and on transitions/review edits.
+Everything Lock In saves is JSON in `~/.lockin`, defined by the JSON Schemas in [`Schemas/`](Schemas). Each file names its schema in `$schema`, so editors that validate JSON check hand edits.
 
-`~/.lockin/state.json` is an internal recovery snapshot for active sessions, draft tasks and pending reviews. YAML files are human-readable exports owned by the app; edit TODOs through the app, since external YAML edits are not imported. Files are written atomically one at a time. If a multi-file write is interrupted, the snapshot remains the recovery source and YAML is regenerated on the next save. Read failures preserve the original files and prevent new sessions. Write failures are shown in the app.
+- `sessions/<id>.json` ([schema](Schemas/session-v1.schema.json)): one file per session, with its target, tasks and links, the timeline of work, overtime, break and pause intervals (with pause reasons), and events. These files are the record of your work: History, the day review and `lockin history` are built from them.
+- `settings.json` ([schema](Schemas/settings-v1.schema.json)): profiles, the plan for the next session, and bookkeeping between launches, such as the session waiting for review and the last backfill.
+
+Timestamps are ISO 8601 in UTC with microseconds. Each file is written atomically, and only when it changes. The open session's file is also written every ten seconds, with `checkpoint_at`: if Lock In quits unexpectedly, the time after that becomes a pause. Session files are written before settings, so an interrupted save never leaves settings pointing at a session that doesn't exist.
+
+The files are yours to read and edit, preferably while Lock In isn't running, since it rewrites the open session every ten seconds. A session file that can't be read, or was written by a newer Lock In, is skipped with a warning and never overwritten. If `settings.json` can't be read, Lock In saves nothing until it's fixed.
+
+Builds before 1.0 kept a `state.json` journal and YAML copies of each session in `~/.lockin`, and profiles in `~/Library/Application Support/LockIn/state.json`. The first launch of 1.0 converts them and moves the old files into `~/.lockin/legacy`. Nothing is deleted.
 
 Links are saved as URLs only. No Linear, GitHub or Notion account access or API integration is required.
 
@@ -79,6 +86,7 @@ lockin resume
 lockin tasks                             # numbered: use the numbers below
 lockin task 2 "Fix the flaky build"      # new title; a link alone replaces just the link
 lockin task done 2                       # also: task undo <n>, task rm <n>
+lockin event add "Deployed to staging"   # note something that happened, with the time
 lockin finish                            # once the target is reached
 lockin end "Starting a new day"          # end early, with a reason
 lockin history -n 14
@@ -98,11 +106,13 @@ A task is written as `"title"`, `"link"` or `"title - link"`. A link is split fr
 - A range outside every session becomes a new, already-reviewed session.
 - A range that covers parts of two sessions is refused, with both boundaries named.
 
-Backfilled intervals are saved with `backfilled: true` (journal `schema_version: 4`) and drawn lighter in the day timeline. Work after the point the target is now reached is relabelled as overtime. The reply shows the exact times used, with dates. `lockin backfill --undo` removes the last backfill and keeps anything recorded since.
+Backfilled intervals are saved with `backfilled: true` and drawn lighter in the day timeline. Work after the point the target is now reached is relabelled as overtime. The reply shows the exact times used, with dates. `lockin backfill --undo` removes the last backfill and keeps anything recorded since.
 
 `lockin upgrade` fetches the latest release from GitHub and checks that it is signed and notarized. It then installs it with the `install.sh` that ships inside that release, the same script `./install-app` uses. If you're already on that version or a newer one, it does nothing.
 
-`status`, `tasks` and `history` read `~/.lockin/state.json` and don't need the app running. If a session is open but the app isn't running, `status` reports the figures as of the last checkpoint, since that time won't count.
+`lockin event add <text>` records a note on the running session, with the time, in the session's `events`. Paused or on a break counts as running.
+
+`status`, `tasks` and `history` read `~/.lockin` directly and don't need the app running. If a session is open but the app isn't running, `status` reports the figures as of the last checkpoint, since that time won't count.
 
 Everything else is carried out by the app. If the app isn't running, the command starts it in the background first. The CLI never writes the journal itself. It sends a request as a distributed notification, and the app replies with the outcome. The same rules apply as in the window: pauses and early ends need a reason, breaks must be earned, Hardcore Mode refuses `end`, and starting needs at least one task and no pending review. Reviews are still done in the app. Exit status is 0 on success, 1 when the app refuses a command, and 2 for a usage error.
 
@@ -132,14 +142,14 @@ The global shortcut may be unavailable if another app already owns it. macOS mus
 
 ## Architecture
 
-- `LockInCore`: Codable state, URL-rule matcher and session phase data; independently tested.
-- `Store`: main-actor session orchestration, atomic JSON persistence and workflow execution.
+- `LockInCore`: session and journal models, the URL-rule matcher, and storage. `FileFormat` holds the on-disk types, kept separate from the models so a model change can't silently change the files. Tests check what's written against `Schemas/`. `Storage` reads `~/.lockin` (and migrates pre-1.0 files); `StorageWriter` writes only what changed.
+- `Store`: main-actor session orchestration, persistence through `StorageWriter`, and workflow execution.
 - `Blocker`: serialized browser Apple events, cancellation on stop/break, application hiding.
 - `RemoteControl`: answers `lockin` CLI requests by calling the same `Store` methods as the UI.
-- `LockInCLI`: the `lockin` command. It reads the journal directly and sends everything else to the app. It ships in the app bundle as `Contents/Helpers/lockin`.
+- `LockInCLI`: the `lockin` command. It reads `~/.lockin` directly and sends everything else to the app. It ships in the app bundle as `Contents/Helpers/lockin`.
 - SwiftUI views: shared state for the window and menu-bar panel. AppKit handles app selection; Carbon registers the global shortcut without keystroke monitoring.
 
-Blocking preferences and legacy history are saved to `~/Library/Application Support/LockIn/state.json`; new session journals are saved in `~/.lockin`. Failed decoding preserves the original file and disables writes. Workflow scripts run as your current user and are blank by default. No system hosts/proxy/network settings are changed.
+All data is saved in `~/.lockin` (see [Journal files](#journal-files)). Workflow scripts run as your current user and are blank by default. No system hosts/proxy/network settings are changed.
 
 ## Reference
 

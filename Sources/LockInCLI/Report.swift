@@ -10,7 +10,7 @@ struct Snapshot {
     var asOf: Date
     var calendar = Calendar.current
 
-    var session: WorkLog? { journal.sessions.last { $0.endedAt == nil } }
+    var session: WorkLog? { journal.openSession }
     var reviewPending: Bool { journal.pendingReviewID != nil }
     /// The tasks `lockin tasks` numbers: the running session's, or the next session's plan.
     var tasks: [Todo] { session?.todos ?? journal.draft.filter(\.hasTitle) }

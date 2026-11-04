@@ -8,7 +8,7 @@ final class RemoteCommandTests: XCTestCase {
     override func setUp() { directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString) }
     override func tearDown() { try? FileManager.default.removeItem(at: directory) }
     @MainActor private func makeStore() -> Store {
-        Store(stateFile: directory.appendingPathComponent("preferences.json"), journalDirectory: directory, runTimer: false, enforceBlocking: false, listen: false)
+        Store(directory: directory, runTimer: false, enforceBlocking: false, channel: nil)
     }
 
     func testWireFormatRoundTrips() {
@@ -89,6 +89,56 @@ final class RemoteCommandTests: XCTestCase {
         XCTAssertFalse(store.perform(.end(reason: "Bored")).ok)
         XCTAssertTrue(store.active)
     }
+
+    @MainActor func testBackfillAndUndo() {
+        let store = makeStore()
+        // Whole seconds: saved timestamps keep microseconds, so an arbitrary Date() reloads within a microsecond, not exactly.
+        let end = Date(timeIntervalSince1970: (Date().timeIntervalSince1970 - 3600).rounded(.down)), start = end.addingTimeInterval(-1800)
+        XCTAssertFalse(store.perform(.backfill(start: end, end: start)).ok, "the range ends before it starts")
+        XCTAssertTrue(store.journal.sessions.isEmpty)
+        XCTAssertTrue(store.perform(.backfill(start: start, end: end)).ok)
+        XCTAssertEqual(makeStore().journal.sessions.map(\.startedAt), [start], "the backfill is saved as a new session")
+        XCTAssertFalse(store.perform(.backfill(start: start, end: end)).ok, "already recorded")
+        XCTAssertEqual(store.journal.sessions.count, 1, "a refused backfill leaves the journal as it was")
+        XCTAssertTrue(store.perform(.undoBackfill).ok)
+        XCTAssertTrue(makeStore().journal.sessions.isEmpty, "the undo is saved")
+        XCTAssertFalse(store.perform(.undoBackfill).ok, "nothing left to undo")
+    }
+
+    @MainActor func testEventsAreRecordedOnTheRunningSession() throws {
+        let store = makeStore()
+        XCTAssertFalse(store.perform(.addEvent(text: "Too early")).ok, "no session yet")
+        store.journal.draft = [Todo(title: "Task")]
+        store.start()
+        XCTAssertFalse(store.perform(.addEvent(text: "  ")).ok)
+        XCTAssertTrue(store.perform(.pause(reason: "Lunch")).ok)
+        let reply = store.perform(.addEvent(text: " Deployed to staging "))
+        XCTAssertTrue(reply.ok, reply.message)
+        XCTAssertEqual(reply.message, "Recorded “Deployed to staging”.")
+        XCTAssertEqual(makeStore().workLog?.events.map(\.text), ["Deployed to staging"], "events are saved, paused or not")
+    }
+
+    @MainActor func testDeletingFromThePlan() throws {
+        let store = makeStore()
+        XCTAssertTrue(store.perform(.addTask(title: "Only", link: "")).ok)
+        let id = try XCTUnwrap(store.journal.draft.first?.id)
+        XCTAssertFalse(store.perform(.updateTask(id: id, title: " ", link: nil)).ok, "a task needs a title")
+        XCTAssertFalse(store.perform(.deleteTask(id: UUID())).ok)
+        XCTAssertTrue(store.perform(.deleteTask(id: id)).ok)
+        XCTAssertEqual(makeStore().journal.draft.count, 1, "the planner keeps a blank row")
+        XCTAssertFalse(makeStore().journal.draft[0].hasTitle)
+    }
+
+    @MainActor func testUnsavedChangesAreRolledBack() throws {
+        let store = makeStore()
+        // A file where the sessions directory should be makes every write fail.
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data().write(to: Storage.sessionsDirectory(in: directory))
+        let reply = store.perform(.addTask(title: "Lost", link: ""))
+        XCTAssertFalse(reply.ok)
+        XCTAssertTrue(reply.message.contains("Could not save"), reply.message)
+        XCTAssertFalse(store.journal.draft.contains { $0.title == "Lost" }, "the journal in memory matches the one on disk")
+    }
 }
 
 /// The notification round trip the CLI uses, against a listening store with its own temporary journal.
@@ -96,18 +146,24 @@ final class RemoteChannelTests: XCTestCase {
     @MainActor func testRequestGetsAReply() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let store = Store(stateFile: directory.appendingPathComponent("preferences.json"), journalDirectory: directory, runTimer: false, enforceBlocking: false)
+        // A channel of its own: on the app's channel, a running Lock In would get this task too.
+        let channel = RemoteChannel(name: "app.lockin.mac.tests.\(UUID().uuidString)")
+        let store = Store(directory: directory, runTimer: false, enforceBlocking: false, channel: channel)
+        // Stands in for a running Lock In: listening on another channel, it must not hear this one.
+        let bystander = Store(directory: directory.appendingPathComponent("bystander"), runTimer: false, enforceBlocking: false,
+                              channel: RemoteChannel(name: "app.lockin.mac.tests.\(UUID().uuidString)"))
         let center = DistributedNotificationCenter.default()
         let id = UUID().uuidString
         let replied = expectation(description: "reply")
         var reply: RemoteReply?
-        let observer = center.addObserver(forName: RemoteChannel.reply, object: id, queue: .main) { note in
+        let observer = center.addObserver(forName: channel.reply, object: id, queue: .main) { note in
             reply = RemoteChannel.decode(RemoteReply.self, from: note.userInfo); replied.fulfill()
         }
         defer { center.removeObserver(observer) }
-        center.postNotificationName(RemoteChannel.request, object: id, userInfo: RemoteChannel.encode(RemoteCommand.addTask(title: "Via CLI", link: "")), deliverImmediately: true)
+        center.postNotificationName(channel.request, object: id, userInfo: RemoteChannel.encode(RemoteCommand.addTask(title: "Via CLI", link: "")), deliverImmediately: true)
         wait(for: [replied], timeout: 5)
         XCTAssertEqual(reply?.ok, true, reply?.message ?? "no reply")
         XCTAssertEqual(store.journal.draft.map(\.title), ["Via CLI"])
+        XCTAssertFalse(bystander.journal.draft.contains { $0.title == "Via CLI" }, "other channels don't hear it")
     }
 }
