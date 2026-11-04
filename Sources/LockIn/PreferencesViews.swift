@@ -10,6 +10,16 @@ struct PreferencesView: View {
     @AppStorage("showMenuBarCountdown") private var showMenuBarCountdown = false
     @State private var restoringMenuBarItem = false
     @State private var loginEnabled = SMAppService.mainApp.status == .enabled
+    @State private var cliStatus = CommandLineTool.Status.notInstalled
+    private var cliStatusText: String {
+        switch cliStatus {
+        case .unavailable: return "Only the packaged app includes the command line tool."
+        case .notInstalled: return "Not installed."
+        case .installed: return "lockin is linked to this copy of Lock In."
+        case .linkedElsewhere(let path): return "lockin points to another copy (\(path)). Install to use this one."
+        case .blocked: return "~/.local/bin/lockin is a file that isn't from Lock In. Remove it to install."
+        }
+    }
     var body: some View {
         Card {
             Label("Your rhythm", systemImage: "timer").font(.headline)
@@ -44,6 +54,21 @@ struct PreferencesView: View {
             Text("Optional shell commands run as your user through /bin/zsh. Available variables: LOCKIN_EVENT, LOCKIN_PROFILE, LOCKIN_MODE. Leave blank to do nothing.")
                 .font(.caption).foregroundStyle(.secondary)
         }
+        Card {
+            Label("Command line", systemImage: "apple.terminal").font(.headline)
+            Text("The lockin command shows your status, pauses, takes breaks, edits tasks and backfills time from a terminal. Run lockin help for the rest.")
+                .font(.callout).foregroundStyle(.secondary)
+            HStack {
+                Button(cliStatus == .installed ? "Installed" : "Install CLI", systemImage: "terminal") {
+                    do { try CommandLineTool.install() } catch { store.message = error.localizedDescription }
+                    cliStatus = CommandLineTool.status()
+                }.disabled(cliStatus == .installed || cliStatus == .unavailable || cliStatus == .blocked)
+                Text(cliStatusText).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+            }
+            Text("The command is a link to ~/.local/bin/lockin. Add ~/.local/bin to your PATH if your shell doesn't already include it.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .onAppear { cliStatus = CommandLineTool.status() }
         Card {
             Label("General", systemImage: "gearshape").font(.headline)
             Toggle("Show Lock In in the menu bar", isOn: $showMenuBarItem)

@@ -62,7 +62,7 @@ Links are saved as URLs only. No Linear, GitHub or Notion account access or API 
 
 ## Command line
 
-Installing the app, whether with `./install-app` or `lockin upgrade`, links a `lockin` command into `~/.local/bin`, or into `$LOCKIN_BIN_DIR` if you set it. The link points into the installed app, so updating the app updates the command too.
+Installing the app, whether with `./install-app` or `lockin upgrade`, links a `lockin` command into `~/.local/bin`, or into `$LOCKIN_BIN_DIR` if you set it. The link points into the installed app, so updating the app updates the command too. If you installed the app another way, use **Settings → Command line → Install CLI** to make the same link.
 
 Free text is always one argument, so quote anything with spaces: `lockin pause "lunch with Sam"`. Unquoted words are a usage error, and the message shows the quoted command to run instead.
 
