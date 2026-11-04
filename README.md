@@ -23,6 +23,7 @@ Releases are built by GitHub Actions and published as a Developer ID signed, not
 
 - `.github/workflows/ci.yml` builds, tests and packages the app on every push and pull request.
 - `.github/workflows/release.yml` uses [release-please](https://github.com/googleapis/release-please). It keeps a release PR open from [conventional commits](https://www.conventionalcommits.org) on `main` (`feat:`, `fix:` and so on). Merging that PR bumps the version in `Resources/Info.plist`, updates `CHANGELOG.md`, tags the release, then builds, signs, notarizes and attaches the app.
+- The version comes from the commits: `fix:` bumps the patch, `feat:` the minor. Before 1.0, breaking changes (`feat!:` or a `BREAKING CHANGE:` footer) bump the minor too, because of `bump-minor-pre-major`. To choose a version yourself, such as 1.0.0, add a `Release-As: 1.0.0` footer to a commit that lands on `main`, and the release PR switches to that version.
 - The release workflow refuses to run until the Apple signing secrets are set. Run `./Scripts/setup-release.ts` once (needs Deno and the `gh` CLI). It checks your Developer ID `.p12` and App Store Connect API key with the same tools CI uses before storing them as repository secrets.
 
 ## Daily work sessions
@@ -61,7 +62,7 @@ Links are saved as URLs only. No Linear, GitHub or Notion account access or API 
 - Safari and Chromium all-tab redirection, with an original local focus page.
 - Application hiding that preserves unsaved work.
 - Hardcore preferences lock and password-gated preferences.
-- History and charts; shell hooks on start, stop, break, resume, and pause.
+- History and charts; shell hooks on start, stop, overtime, break, resume, and pause. Hooks run through `/bin/zsh` with `LOCKIN_EVENT` and `LOCKIN_PROFILE` set.
 - Launch at login and global Control–Option–Command–F shortcut (opens pause justification during a session).
 - `lockin://start`, `lockin://stop`, `lockin://pause`, `lockin://break`, `lockin://resume`, `lockin://finish`, `lockin://update`; `finish` ends a session that has reached its target; start respects planning/review requirements, stop requires a pause reason. `update` (used by the install script) pauses with “Updating Lock In”, quits, and resumes on relaunch; it is refused in Hardcore Mode.
 
@@ -140,7 +141,7 @@ The global shortcut may be unavailable if another app already owns it. macOS mus
 
 ## Architecture
 
-- `LockInCore`: session and journal models, the URL-rule matcher, and storage. `FileFormat` holds the on-disk types, kept separate from the models so a model change can't silently change the files. Tests check what's written against `Schemas/`. `Storage` reads `~/.lockin` (and migrates pre-1.0 files); `StorageWriter` writes only what changed.
+- `LockInCore`: session and journal models, the URL-rule matcher, and storage. `FileFormat` holds the on-disk types, kept separate from the models so a model change can't silently change the files. Tests check what's written against `Schemas/`. `Storage` reads `~/.lockin`; `StorageWriter` writes only what changed.
 - `Store`: main-actor session orchestration, persistence through `StorageWriter`, and workflow execution.
 - `Blocker`: serialized browser Apple events, cancellation on stop/break, application hiding.
 - `RemoteControl`: answers `lockin` CLI requests by calling the same `Store` methods as the UI.
