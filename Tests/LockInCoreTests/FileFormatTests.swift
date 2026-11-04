@@ -6,6 +6,7 @@ import XCTest
 final class FileFormatTests: XCTestCase {
     /// Whole seconds, so dates survive the microsecond timestamps exactly and models can be compared with ==.
     let start = Date(timeIntervalSince1970: 1_700_000_000)
+    let utc = TimeZone(identifier: "UTC")!
     private var directory: URL!
     override func setUp() { directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString) }
     override func tearDown() { try? FileManager.default.removeItem(at: directory) }
@@ -137,55 +138,8 @@ final class FileFormatTests: XCTestCase {
         }
     }
 
-    // MARK: migrating from pre-1.0 files
-
-    func testMigrationKeepsEverythingAndArchivesTheOldFiles() throws {
-        let legacyPreferences = directory.appendingPathComponent("Application Support/state.json")
-        try FileManager.default.createDirectory(at: legacyPreferences.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let preferences = preferences()
-        var journal = journal()
-        // Events didn't exist before 1.0, so a pre-1.0 journal can't have any.
-        for index in journal.sessions.indices { journal.sessions[index].events = [] }
-        try JSONEncoder().encode(preferences).write(to: legacyPreferences)
-        try JSONEncoder().encode(journal).write(to: directory.appendingPathComponent("state.json"))
-        try "old".write(to: directory.appendingPathComponent("session-\(journal.sessions[0].id).yaml"), atomically: true, encoding: .utf8)
-
-        let legacy = try Storage.load(from: directory, legacyPreferences: legacyPreferences)
-        XCTAssertTrue(legacy.isLegacy)
-        XCTAssertEqual(legacy.preferences, preferences)
-        XCTAssertEqual(legacy.journal, journal)
-        XCTAssertNotNil(legacy.checkpoint, "the open session's checkpoint is when the old journal was saved")
-
-        try StorageWriter(directory: directory, contents: nil).write(preferences: legacy.preferences, journal: legacy.journal, checkpoint: start)
-        try Storage.archiveLegacyFiles(in: directory, legacyPreferences: legacyPreferences)
-
-        let migrated = try Storage.load(from: directory, legacyPreferences: legacyPreferences)
-        XCTAssertFalse(migrated.isLegacy)
-        XCTAssertEqual(migrated.preferences, preferences)
-        XCTAssertEqual(migrated.journal, journal)
-        XCTAssertEqual(migrated.checkpoint, start)
-        XCTAssertEqual(migrated.skipped, [])
-        let archive = directory.appendingPathComponent("legacy")
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: archive.path).sorted(),
-                       ["preferences.json", "session-\(journal.sessions[0].id).yaml", "state.json"])
-        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyPreferences.path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("state.json").path))
-    }
-
-    func testArchivingTwiceKeepsBothCopies() throws {
-        let legacy = directory.appendingPathComponent("state.json")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try "first".write(to: legacy, atomically: true, encoding: .utf8)
-        try Storage.archiveLegacyFiles(in: directory, legacyPreferences: nil)
-        try "second".write(to: legacy, atomically: true, encoding: .utf8)
-        try Storage.archiveLegacyFiles(in: directory, legacyPreferences: nil)
-        let names = try FileManager.default.contentsOfDirectory(atPath: directory.appendingPathComponent("legacy").path)
-        XCTAssertEqual(names.count, 2, "\(names)")
-    }
-
     func testNothingSavedLoadsAsFresh() throws {
-        let contents = try Storage.load(from: directory, legacyPreferences: nil)
-        XCTAssertFalse(contents.isLegacy)
+        let contents = try Storage.load(from: directory)
         XCTAssertTrue(contents.journal.sessions.isEmpty)
         XCTAssertEqual(contents.journal.draft.map(\.title), [""], "the planner's blank row")
         XCTAssertNil(contents.checkpoint)
@@ -195,7 +149,7 @@ final class FileFormatTests: XCTestCase {
 
     func testUnreadableSessionsAreSkippedAndNeverOverwritten() throws {
         let journal = journal()
-        let writer = StorageWriter(directory: directory, contents: nil)
+        let writer = StorageWriter(directory: directory, timeZone: utc)
         try writer.write(preferences: preferences(), journal: journal, checkpoint: start)
         let sessions = Storage.sessionsDirectory(in: directory)
         let broken = sessions.appendingPathComponent("broken.json"), newer = sessions.appendingPathComponent("newer.json")
@@ -206,7 +160,7 @@ final class FileFormatTests: XCTestCase {
         noIntervals.intervals = []
         try FileFormat.encoder.encode(noIntervals).write(to: empty)
 
-        let contents = try Storage.load(from: directory, legacyPreferences: nil)
+        let contents = try Storage.load(from: directory)
         XCTAssertEqual(contents.journal.sessions.map(\.id), journal.sessions.map(\.id))
         XCTAssertEqual(contents.skipped.count, 3, "\(contents.skipped)")
         XCTAssertTrue(contents.skipped.contains { $0.hasPrefix("newer.json") && $0.contains("newer version") })
@@ -221,17 +175,17 @@ final class FileFormatTests: XCTestCase {
     func testUnreadableSettingsStopEverything() throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try #"{"schema_version": 1, "profiles": "oops"}"#.write(to: Storage.settingsFile(in: directory), atomically: true, encoding: .utf8)
-        XCTAssertThrowsError(try Storage.load(from: directory, legacyPreferences: nil)) { error in
+        XCTAssertThrowsError(try Storage.load(from: directory)) { error in
             XCTAssertTrue(error.localizedDescription.contains("profiles"), error.localizedDescription)
         }
     }
 
     func testOnlyChangedSessionsAreWritten() throws {
         var journal = journal()
-        let writer = StorageWriter(directory: directory, contents: nil)
+        let writer = StorageWriter(directory: directory, timeZone: utc)
         try writer.write(preferences: SavedState(), journal: journal, checkpoint: start)
-        let finished = Storage.sessionFile(journal.sessions[0].id, in: directory)
-        let open = Storage.sessionFile(journal.sessions[1].id, in: directory)
+        let finished = try XCTUnwrap(writer.file(for: journal.sessions[0].id))
+        let open = try XCTUnwrap(writer.file(for: journal.sessions[1].id))
         try "edited elsewhere".write(to: finished, atomically: true, encoding: .utf8)
         try writer.write(preferences: SavedState(), journal: journal, checkpoint: start.addingTimeInterval(10))
         XCTAssertEqual(try String(contentsOf: finished, encoding: .utf8), "edited elsewhere", "an unchanged session is skipped")
@@ -246,15 +200,60 @@ final class FileFormatTests: XCTestCase {
 
     func testRenamedSessionFilesAreWrittenInPlace() throws {
         var journal = journal()
-        try StorageWriter(directory: directory, contents: nil).write(preferences: SavedState(), journal: journal, checkpoint: start)
-        let original = Storage.sessionFile(journal.sessions[0].id, in: directory)
+        let writer = StorageWriter(directory: directory, timeZone: utc)
+        try writer.write(preferences: SavedState(), journal: journal, checkpoint: start)
+        let original = try XCTUnwrap(writer.file(for: journal.sessions[0].id))
         let renamed = Storage.sessionsDirectory(in: directory).appendingPathComponent("monday.json")
         try FileManager.default.moveItem(at: original, to: renamed)
-        let contents = try Storage.load(from: directory, legacyPreferences: nil)
+        let contents = try Storage.load(from: directory)
         journal = contents.journal
         journal.sessions[0].endReason = "Renamed"
         try StorageWriter(directory: directory, contents: contents).write(preferences: SavedState(), journal: journal, checkpoint: start)
         XCTAssertFalse(FileManager.default.fileExists(atPath: original.path))
         XCTAssertEqual(try FileFormat.decode(SessionFile.self, from: Data(contentsOf: renamed), supported: 1).endReason, "Renamed")
+    }
+
+    // MARK: file names
+
+    func testSessionFilesAreNamedAfterTheirStart() throws {
+        var journal = JournalState()
+        let first = WorkLog(todos: [], targetSeconds: 60, now: start)                        // 22:13:20 UTC
+        let sameMinute = WorkLog(todos: [], targetSeconds: 60, now: start.addingTimeInterval(30))
+        let later = WorkLog(todos: [], targetSeconds: 60, now: start.addingTimeInterval(3600))
+        journal.sessions = [first, sameMinute, later]
+        let writer = StorageWriter(directory: directory, timeZone: utc)
+        try writer.write(preferences: SavedState(), journal: journal, checkpoint: start)
+        XCTAssertEqual(writer.file(for: first.id)?.lastPathComponent, "2023-11-14T22-13.json")
+        XCTAssertEqual(writer.file(for: sameMinute.id)?.lastPathComponent, "2023-11-14T22-13.2.json", "a clash gets a number")
+        XCTAssertEqual(writer.file(for: later.id)?.lastPathComponent, "2023-11-14T23-13.json")
+
+        let local = StorageWriter(directory: directory.appendingPathComponent("tokyo"), timeZone: TimeZone(identifier: "Asia/Tokyo")!)
+        try local.write(preferences: SavedState(), journal: JournalState(), checkpoint: start)
+        var tokyo = JournalState(); tokyo.sessions = [first]
+        try local.write(preferences: SavedState(), journal: tokyo, checkpoint: start)
+        XCTAssertEqual(local.file(for: first.id)?.lastPathComponent, "2023-11-15T07-13.json", "names use local time")
+    }
+
+    func testFileNamesDontFollowTheStart() throws {
+        var journal = JournalState()
+        journal.sessions = [WorkLog(todos: [], targetSeconds: 60, now: start)]
+        let writer = StorageWriter(directory: directory, timeZone: utc)
+        try writer.write(preferences: SavedState(), journal: journal, checkpoint: start)
+        journal.sessions[0].startedAt = start.addingTimeInterval(-7200)   // as a backfill would
+        try writer.write(preferences: SavedState(), journal: journal, checkpoint: start)
+        let names = try FileManager.default.contentsOfDirectory(atPath: Storage.sessionsDirectory(in: directory).path)
+        XCTAssertEqual(names, ["2023-11-14T22-13.json"])
+    }
+
+    func testExistingFilesAreNeverReused() throws {
+        let folder = Storage.sessionsDirectory(in: directory)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try "not ours".write(to: folder.appendingPathComponent("2023-11-14T22-13.json"), atomically: true, encoding: .utf8)
+        var journal = JournalState()
+        journal.sessions = [WorkLog(todos: [], targetSeconds: 60, now: start)]
+        let writer = StorageWriter(directory: directory, contents: try Storage.load(from: directory), timeZone: utc)
+        try writer.write(preferences: SavedState(), journal: journal, checkpoint: start)
+        XCTAssertEqual(writer.file(for: journal.sessions[0].id)?.lastPathComponent, "2023-11-14T22-13.2.json")
+        XCTAssertEqual(try String(contentsOf: folder.appendingPathComponent("2023-11-14T22-13.json"), encoding: .utf8), "not ours")
     }
 }

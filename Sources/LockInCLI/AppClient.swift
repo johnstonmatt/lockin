@@ -10,7 +10,7 @@ enum AppClient {
     /// The journal as the app last saved it. A missing file means Lock In hasn't been used yet.
     static func snapshot() throws -> Snapshot {
         let contents: Storage.Contents
-        do { contents = try Storage.load(from: Storage.directory, legacyPreferences: Storage.legacyPreferencesFile) }
+        do { contents = try Storage.load(from: Storage.directory) }
         catch { throw UsageError(error.localizedDescription) }
         for problem in contents.skipped { FileHandle.standardError.write(Data("lockin: skipped sessions/\(problem)\n".utf8)) }
         let running = isRunning

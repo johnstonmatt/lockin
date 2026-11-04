@@ -19,9 +19,7 @@ import LockInCore
     private var writable = true
     private var lastCheckpoint = Date.distantPast
     private let directory: URL
-    private let legacyPreferences: URL?
     private let writer: StorageWriter
-    private var legacyArchived = false
     /// Replaceable so tests can exercise update handling without quitting the test runner.
     var terminate: () -> Void = { NSApp?.terminate(nil) }
     private let enforceBlocking: Bool
@@ -46,19 +44,16 @@ import LockInCore
             }
         }
     }
-    /// `directory` replaces ~/.lockin, e.g. in tests. Only the real ~/.lockin picks up the pre-1.0 preferences
-    /// file by default, so a test directory never reads or moves them.
+    /// `directory` replaces ~/.lockin, e.g. in tests.
     /// `channel` is where `lockin` CLI commands arrive; tests pass nil, or a channel of their own, so they never
     /// answer the real CLI and the real app never answers them.
-    init(directory: URL? = nil, legacyPreferences: URL? = nil, runTimer: Bool = true, enforceBlocking: Bool = true, channel: RemoteChannel? = .app) {
+    init(directory: URL? = nil, runTimer: Bool = true, enforceBlocking: Bool = true, channel: RemoteChannel? = .app) {
         self.directory = directory ?? Storage.directory
-        self.legacyPreferences = directory == nil ? Storage.legacyPreferencesFile : legacyPreferences
         self.enforceBlocking = enforceBlocking
         var contents: Storage.Contents?
-        do { contents = try Storage.load(from: self.directory, legacyPreferences: self.legacyPreferences) }
+        do { contents = try Storage.load(from: self.directory) }
         catch { writable = false; message = "\(error.localizedDescription)\n\nLock In won't save anything until this is fixed, so the file is left as it is." }
-        // Migrating from pre-1.0 files writes everything; otherwise only what changes is written.
-        writer = StorageWriter(directory: self.directory, contents: contents?.isLegacy == true ? nil : contents)
+        writer = StorageWriter(directory: self.directory, contents: contents ?? Storage.Contents())
         if let contents {
             state = contents.preferences; journal = contents.journal
             if !contents.skipped.isEmpty {
@@ -75,8 +70,6 @@ import LockInCore
             Task { @MainActor in self?.resumeAfterWake() }
         }
         restoreSession(checkpoint: contents?.checkpoint)
-        // Migrate pre-1.0 files straight away rather than on the first change.
-        if contents?.isLegacy == true { persist() }
         tick()
         if let channel { remoteControl = RemoteControl(store: self, channel: channel) }
         guard runTimer else { return }
@@ -295,7 +288,7 @@ import LockInCore
                 _ = journal.sessions[index].pause(reason: "App was not running; resumed from saved checkpoint", at: checkpoint)
             }
         } else if state.session != nil {
-            // Retain legacy history; old sessions cannot earn undocumented work credit.
+            // Enforcement without an open session, e.g. its file couldn't be read: nothing to enforce.
             state.session = nil
         }
         if let last = journal.sessions.last, last.endedAt != nil, !last.reviewed {
@@ -309,18 +302,13 @@ import LockInCore
         }
     }
     /// Saves ~/.lockin: settings, and each session file that changed. The open session's file is always written,
-    /// since it carries the checkpoint. The first save after migrating moves the pre-1.0 files into ~/.lockin/legacy.
+    /// since it carries the checkpoint.
     @discardableResult func persist() -> Bool {
         guard writable else { return false }
         do {
             try writer.write(preferences: state, journal: journal, checkpoint: Date())
             lastCheckpoint = Date()
         } catch { message = "Could not save to ~/.lockin: \(error.localizedDescription)"; return false }
-        if !legacyArchived {
-            legacyArchived = true
-            do { try Storage.archiveLegacyFiles(in: directory, legacyPreferences: legacyPreferences) }
-            catch { message = "Your data is saved, but the old files couldn't be moved into ~/.lockin/legacy: \(error.localizedDescription)" }
-        }
         return true
     }
     /// Applies a journal change and saves it. If the change throws or the journal can't be written,

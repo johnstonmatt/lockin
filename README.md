@@ -45,14 +45,12 @@ Open Lock In, enter your TODOs (each can have an optional link, shown as Linear,
 
 Everything Lock In saves is JSON in `~/.lockin`, defined by the JSON Schemas in [`Schemas/`](Schemas). Each file names its schema in `$schema`, so editors that validate JSON check hand edits.
 
-- `sessions/<id>.json` ([schema](Schemas/session-v1.schema.json)): one file per session, with its target, tasks and links, the timeline of work, overtime, break and pause intervals (with pause reasons), and events. These files are the record of your work: History, the day review and `lockin history` are built from them.
+- `sessions/2026-11-04T09-00.json` ([schema](Schemas/session-v1.schema.json)): one file per session, named after when it started, in local time to the minute. A second session started in the same minute gets `.2` before `.json`. The name doesn't change afterwards, even if a backfill moves the start earlier. Each file holds the session's `id`, and that's how Lock In finds it, so renaming a file is harmless. The file holds the target, tasks and links, the timeline of work, overtime, break and pause intervals (with pause reasons), and events. These files are the record of your work: History, the day review and `lockin history` are built from them.
 - `settings.json` ([schema](Schemas/settings-v1.schema.json)): profiles, the plan for the next session, and bookkeeping between launches, such as the session waiting for review and the last backfill.
 
 Timestamps are ISO 8601 in UTC with microseconds. Each file is written atomically, and only when it changes. The open session's file is also written every ten seconds, with `checkpoint_at`: if Lock In quits unexpectedly, the time after that becomes a pause. Session files are written before settings, so an interrupted save never leaves settings pointing at a session that doesn't exist.
 
 The files are yours to read and edit, preferably while Lock In isn't running, since it rewrites the open session every ten seconds. A session file that can't be read, or was written by a newer Lock In, is skipped with a warning and never overwritten. If `settings.json` can't be read, Lock In saves nothing until it's fixed.
-
-Builds before 1.0 kept a `state.json` journal and YAML copies of each session in `~/.lockin`, and profiles in `~/Library/Application Support/LockIn/state.json`. The first launch of 1.0 converts them and moves the old files into `~/.lockin/legacy`. Nothing is deleted.
 
 Links are saved as URLs only. No Linear, GitHub or Notion account access or API integration is required.
 

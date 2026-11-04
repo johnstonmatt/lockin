@@ -80,4 +80,16 @@ final class WorkStatsTests: XCTestCase {
         XCTAssertEqual(WorkStats.format(3 * 3600), "3h")
         XCTAssertEqual(WorkStats.format(3.5 * 3600 + 20), "3h 30m")
     }
+
+    func testEventsWithinARange() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var first = WorkLog(todos: [], targetSeconds: 3600, now: start)
+        _ = first.addEvent("Late", at: start.addingTimeInterval(7200))
+        _ = first.addEvent("Early", at: start.addingTimeInterval(60))
+        var second = WorkLog(todos: [], targetSeconds: 3600, now: start.addingTimeInterval(86_400))
+        _ = second.addEvent("Next day", at: start.addingTimeInterval(86_500))
+        let stats = WorkStats(sessions: [first, second], now: start.addingTimeInterval(90_000))
+        XCTAssertEqual(stats.events(in: DateInterval(start: start, duration: 86_400)).map(\.text), ["Early", "Late"], "in time order")
+        XCTAssertEqual(stats.events(in: DateInterval(start: start, duration: 3600)).map(\.text), ["Early"])
+    }
 }

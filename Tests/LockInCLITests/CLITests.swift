@@ -81,6 +81,25 @@ final class ReportTests: XCTestCase {
         XCTAssertTrue(status.statusText.contains("  2. [ ] Fix bug — https://github.com/a/b/pull/1"))
         XCTAssertEqual(try status.task(number: 2).title, "Fix bug")
         XCTAssertThrowsError(try status.task(number: 3))
+        XCTAssertFalse(status.statusText.contains("Events"), "no heading without events")
+        XCTAssertTrue(status.statusJSON.contains(#""events" : ["#), status.statusJSON)
+    }
+
+    func testStatusShowsRecentEvents() throws {
+        var journal = JournalState()
+        var log = WorkLog(todos: [todo("Ship")], targetSeconds: 8 * 3600, now: start)
+        for minute in 1...7 { _ = log.addEvent("Event \(minute)", at: start.addingTimeInterval(Double(minute) * 60)) }
+        journal.sessions = [log]
+        let status = snapshot(journal, at: 3600)
+        XCTAssertTrue(status.statusText.contains("Events (latest 5 of 7)"), status.statusText)
+        XCTAssertFalse(status.statusText.contains("Event 2"), "older events are left to the session file")
+        XCTAssertTrue(status.statusText.contains("Event 3"))
+        XCTAssertTrue(status.statusText.hasSuffix("Event 7"), status.statusText)
+        let json = try JSONSerialization.jsonObject(with: Data(status.statusJSON.utf8)) as? [String: Any]
+        let events = try XCTUnwrap(json?["events"] as? [[String: Any]])
+        XCTAssertEqual(events.count, 7, "JSON has every event")
+        XCTAssertEqual(events.first?["text"] as? String, "Event 1")
+        XCTAssertNotNil(events.first?["at"] as? String)
     }
 
     func testPausedAndNotRunning() {

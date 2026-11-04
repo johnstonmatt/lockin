@@ -83,15 +83,13 @@ struct EndSessionView: View {
 struct DayReviewView: View {
     @EnvironmentObject var store: Store
     private var day: Date { store.reviewIndex.map { store.journal.sessions[$0].lastActiveAt } ?? store.now }
-    private var intervals: [WorkInterval] {
-        let stats = WorkStats(sessions: store.journal.sessions, now: store.now)
-        return stats.intervals(in: stats.day(containing: day))
-    }
+    private var stats: WorkStats { WorkStats(sessions: store.journal.sessions, now: store.now) }
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Your day, in focus").font(.largeTitle)
             Text(day, format: .dateTime.weekday(.wide).month().day()).foregroundStyle(.secondary)
-            DayTimeline(intervals: intervals, now: store.now)
+            let range = stats.day(containing: day)
+            DayTimeline(intervals: stats.intervals(in: range), events: stats.events(in: range), now: store.now)
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if let index = store.reviewIndex {
