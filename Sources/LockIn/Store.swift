@@ -31,13 +31,13 @@ import LockInCore
     private var storageAvailable = true
     private let file: URL
     enum Page: String, CaseIterable, Identifiable {
-        case focus = "Focus", distractions = "Distractions", insights = "Insights", settings = "Settings"
+        case focus = "Focus", distractions = "Distractions", history = "History", settings = "Settings"
         var id: String { rawValue }
         var icon: String {
             switch self {
             case .focus: return "scope"
             case .distractions: return "hand.raised"
-            case .insights: return "chart.bar.xaxis"
+            case .history: return "chart.bar.xaxis"
             case .settings: return "slider.horizontal.3"
             }
         }

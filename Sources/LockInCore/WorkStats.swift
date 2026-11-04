@@ -1,6 +1,6 @@
 import Foundation
 
-public enum InsightsPeriod: String, CaseIterable, Identifiable, Sendable {
+public enum HistoryPeriod: String, CaseIterable, Identifiable, Sendable {
     case week = "Week", month = "Month", year = "Year"
     public var id: String { rawValue }
     public var component: Calendar.Component {
@@ -23,7 +23,7 @@ public struct PhaseTotals: Equatable, Sendable {
     public var worked: Double { self[.work] + self[.overtime] }
 }
 
-public struct InsightBucket: Identifiable, Sendable {
+public struct HistoryBucket: Identifiable, Sendable {
     public var id: Date { start }
     public let start: Date
     public let end: Date
@@ -48,7 +48,7 @@ public struct WorkStats: Sendable {
         self.sessions = sessions; self.now = now; self.calendar = calendar
     }
 
-    public func range(_ period: InsightsPeriod, offset: Int = 0) -> DateInterval {
+    public func range(_ period: HistoryPeriod, offset: Int = 0) -> DateInterval {
         let anchor = calendar.date(byAdding: period.component, value: offset, to: now) ?? now
         return calendar.dateInterval(of: period.component, for: anchor) ?? DateInterval(start: anchor, duration: 0)
     }
@@ -75,19 +75,19 @@ public struct WorkStats: Sendable {
         sessions.filter { $0.startedAt < range.end && ($0.endedAt ?? now) > range.start }
     }
 
-    public func buckets(_ period: InsightsPeriod, in range: DateInterval) -> [InsightBucket] {
-        var result: [InsightBucket] = []
+    public func buckets(_ period: HistoryPeriod, in range: DateInterval) -> [HistoryBucket] {
+        var result: [HistoryBucket] = []
         var start = range.start
         while start < range.end, let next = calendar.date(byAdding: period.bucket, value: 1, to: start) {
             let slice = DateInterval(start: start, end: min(next, range.end))
-            result.append(InsightBucket(start: start, end: slice.end, totals: totals(in: slice), target: target(in: slice)))
+            result.append(HistoryBucket(start: start, end: slice.end, totals: totals(in: slice), target: target(in: slice)))
             start = next
         }
         return result
     }
 
     /// Work in the preceding period up to the same elapsed point, so a period in progress is compared fairly.
-    public func previousWork(_ period: InsightsPeriod, offset: Int = 0) -> Double {
+    public func previousWork(_ period: HistoryPeriod, offset: Int = 0) -> Double {
         let current = range(period, offset: offset), previous = range(period, offset: offset - 1)
         let elapsed = min(max(0, min(now, current.end).timeIntervalSince(current.start)), previous.duration)
         return totals(in: DateInterval(start: previous.start, duration: elapsed)).worked
