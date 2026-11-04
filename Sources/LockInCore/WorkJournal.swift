@@ -36,6 +36,34 @@ public struct Todo: Identifiable, Codable, Equatable, Sendable {
         let host = url.host ?? link
         return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
+    /// A title for a task given only a link, read from the URL itself (no network access):
+    /// "FUNC-1033 github workflows cannot exceed 3600s" for a Linear issue, "owner/repo#12" for a GitHub PR or issue,
+    /// the page name for Notion, and the host and path for anything else.
+    public static func title(fromLink text: String) -> String {
+        guard let url = URL(string: text.trimmed), let host = url.host, !host.isEmpty else { return text.trimmed }
+        let parts = url.pathComponents.filter { $0 != "/" }
+        func words(_ slug: String) -> String { slug.replacingOccurrences(of: "-", with: " ").trimmed }
+        switch LinkService(url: url) {
+        case .linear?:
+            if let issue = parts.firstIndex(of: "issue"), issue + 1 < parts.count {
+                let key = parts[issue + 1]
+                let slug = issue + 2 < parts.count ? words(parts[issue + 2]) : ""
+                return slug.isEmpty ? key : "\(key) \(slug)"
+            }
+        case .github?:
+            if parts.count >= 4, ["pull", "issues"].contains(parts[2]) { return "\(parts[0])/\(parts[1])#\(parts[3])" }
+            if !parts.isEmpty { return parts.joined(separator: "/") }
+        case .notion?:
+            // Page URLs end in the page's 32-character hex ID, e.g. "Lock-In-Plan-0123…cdef".
+            if var page = parts.last {
+                if let id = page.range(of: "-?[0-9a-f]{32}$", options: .regularExpression) { page.removeSubrange(id) }
+                if !words(page).isEmpty { return words(page) }
+            }
+        case nil: break
+        }
+        let site = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+        return parts.isEmpty ? site : site + "/" + parts.joined(separator: "/")
+    }
     public var hasTitle: Bool { !title.isBlank }
     /// Has a title and a usable (or no) link: what a task needs before it can be saved.
     public var isValid: Bool { hasTitle && validLink }
@@ -83,6 +111,9 @@ public struct WorkInterval: Identifiable, Codable, Sendable {
     public var start: Date
     public var end: Date?
     public var reason: String?
+    /// Work added afterwards with `lockin backfill` rather than timed live. Nil (not false) on timed intervals,
+    /// so journals written before backfill existed decode unchanged.
+    public var backfilled: Bool?
     public func seconds(at now: Date) -> Double { max(0, (end ?? now).timeIntervalSince(start)) }
 }
 public struct WorkLog: Identifiable, Codable, Sendable {
@@ -171,6 +202,8 @@ public struct JournalState: Codable {
     public var pendingReviewID: UUID?
     /// The pause interval created by `lockin://update`; the next launch resumes work only if it is still the current interval.
     public var resumeAfterUpdateID: UUID?
+    /// What the last `lockin backfill` changed, so `lockin backfill --undo` can put it back.
+    public var lastBackfill: BackfillRecord?
     public init() {}
 }
 
@@ -187,8 +220,9 @@ public enum SessionYAML {
         let worked = log.worked(at: now)
         // Version 2: a task's `linear_url` became `link`, plus `link_service`.
         // Version 3: `overtime` intervals and `overtime_seconds`; `work_seconds` stays work before the target.
+        // Version 4: `backfilled` on intervals, true for work added afterwards with `lockin backfill`.
         var lines = [
-            "schema_version: 3",
+            "schema_version: 4",
             "id: \(quoted(log.id.uuidString))",
             "started_at: \(date(log.startedAt))",
             "ended_at: \(date(log.endedAt))",
@@ -223,6 +257,7 @@ public enum SessionYAML {
                 "    ended_at: \(date(interval.end))",
                 "    duration_seconds: \(interval.seconds(at: now))",
                 "    reason: \(quoted(interval.reason))",
+                "    backfilled: \(interval.backfilled == true)",
             ]
         }
         return lines.joined(separator: "\n") + "\n"

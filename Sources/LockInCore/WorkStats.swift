@@ -118,6 +118,11 @@ public struct WorkStats: Sendable {
     }
     public var orderedWeekdays: [Int] { (0..<7).map { (calendar.firstWeekday - 1 + $0) % 7 + 1 } }
 
+    /// "01:05:09": a countdown, rounded up to the whole second.
+    public static func clock(_ seconds: Double) -> String {
+        let value = max(0, Int(ceil(seconds)))
+        return String(format: "%02d:%02d:%02d", value / 3600, value / 60 % 60, value % 60)
+    }
     /// "3h 30m", "3h", "45m", "0m" — rounded to the nearest minute.
     public static func format(_ seconds: Double) -> String {
         let minutes = Int((max(0, seconds) / 60).rounded())

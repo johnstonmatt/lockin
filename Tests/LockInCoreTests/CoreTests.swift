@@ -54,4 +54,15 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(state.profiles.first?.websites, ["reddit.com"])
         XCTAssertEqual(state.session?.locked, true)
     }
+    func testTitlesFromLinks() {
+        XCTAssertEqual(Todo.title(fromLink: "https://linear.app/supabase/issue/FUNC-1033/github-workflows-cannot-exceed-3600s"),
+                       "FUNC-1033 github workflows cannot exceed 3600s")
+        XCTAssertEqual(Todo.title(fromLink: "https://linear.app/supabase/issue/FUNC-1033"), "FUNC-1033")
+        XCTAssertEqual(Todo.title(fromLink: "https://github.com/supabase/edge-runtime/pull/412"), "supabase/edge-runtime#412")
+        XCTAssertEqual(Todo.title(fromLink: "https://github.com/supabase/edge-runtime/issues/9"), "supabase/edge-runtime#9")
+        XCTAssertEqual(Todo.title(fromLink: "https://github.com/supabase/edge-runtime"), "supabase/edge-runtime")
+        XCTAssertEqual(Todo.title(fromLink: "https://www.notion.so/supabase/Lock-In-Plan-0123456789abcdef0123456789abcdef"), "Lock In Plan")
+        XCTAssertEqual(Todo.title(fromLink: "https://www.example.com/docs/setup/"), "example.com/docs/setup")
+        XCTAssertEqual(Todo.title(fromLink: "https://example.com"), "example.com")
+    }
 }
