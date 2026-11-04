@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.0.0](https://github.com/johnstonmatt/lockin/compare/v0.4.0...v1.0.0) (2026-11-04)
+
+
+### Features
+
+* migrate journals to schema-defined JSON files and add session events ([75b81f4](https://github.com/johnstonmatt/lockin/commit/75b81f41b5271b6a9ee5bd51cf725bb8cd85d6b1))
+* show session events in timelines and CLI status ([c550f1c](https://github.com/johnstonmatt/lockin/commit/c550f1cc94da577948ca576056b4f98afc0b8156))
+
+
+### Refactoring
+
+* consolidate shared session, workflow, and CLI helpers ([c84c23b](https://github.com/johnstonmatt/lockin/commit/c84c23bdd93f95daf7ac4090371d8ee95ad3402d))
+
+
+### Documentation
+
+* correct README architecture and hooks notes, explain release versioning ([6d02af0](https://github.com/johnstonmatt/lockin/commit/6d02af09cf8453330577cf732bd4985db3cd5ae2))
+
 ## [0.4.0](https://github.com/johnstonmatt/lockin/compare/v0.3.0...v0.4.0) (2026-11-04)
 
 
