@@ -56,6 +56,26 @@ import LockInCore
     nonisolated private static func literal(_ value: String) -> String {
         "\"" + value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
+    /// Sends one tab to the block page, but only if it still shows `url`: the tab may have moved on since the scan.
+    /// Returns true if it redirected. A tab that has since closed (-1728) isn't an error.
+    nonisolated private static func redirect(id: String, tab: String, from url: String, to destination: String) -> NSAppleScript? {
+        NSAppleScript(source: """
+        with timeout of 5 seconds
+            tell application id "\(id)"
+                try
+                    set targetTab to \(tab)
+                    if URL of targetTab is \(literal(url)) then
+                        set URL of targetTab to \(literal(destination))
+                        return true
+                    end if
+                on error errorText number errorCode
+                    if errorCode is not -1728 then error errorText number errorCode
+                end try
+                return false
+            end tell
+        end timeout
+        """)
+    }
     nonisolated private static func failure(_ id: String, error: NSDictionary?) -> String {
         let code = error?[NSAppleScript.errorNumber] as? Int ?? 0
         let detail = error?[NSAppleScript.errorMessage] as? String ?? "AppleScript could not run"
@@ -125,30 +145,13 @@ import LockInCore
                           let raw = row.atIndex(3)?.stringValue, let url = URL(string: raw),
                           WebsiteRule.shouldBlock(url, rules: profile.websites, mode: profile.blockingMode) else { continue }
                     guard Int(windowID) != nil, Int(tabID) != nil else { failures.append("\(id): unexpected browser tab identifier"); continue }
-                    let tabReference = safari ? "tab \(tabID) of window id \(windowID)" : "tab id \(Self.literal(tabID)) of window id \(Self.literal(windowID))"
-                    let redirect = """
-                    with timeout of 5 seconds
-                        tell application id "\(id)"
-                            try
-                                set targetTab to \(tabReference)
-                                if URL of targetTab is \(Self.literal(raw)) then
-                                    set URL of targetTab to \(Self.literal(BlockPage.destination(base: destination, original: raw)))
-                                    return true
-                                end if
-                            on error errorText number errorCode
-                                if errorCode is not -1728 then error errorText number errorCode
-                            end try
-                            return false
-                        end tell
-                    end timeout
-                    """
+                    let tab = safari ? "tab \(tabID) of window id \(windowID)" : "tab id \(Self.literal(tabID)) of window id \(Self.literal(windowID))"
                     error = nil
-                    guard let script = NSAppleScript(source: redirect) else { failures.append("\(id): could not prepare redirect"); continue }
+                    guard let script = Self.redirect(id: id, tab: tab, from: raw, to: BlockPage.destination(base: destination, original: raw)) else { failures.append("\(id): could not prepare redirect"); continue }
                     let redirected = script.executeAndReturnError(&error)
                     if error != nil { failures.append(Self.failure(id, error: error)) }
                     else if redirected.booleanValue { blocked += 1 }
                 }
-
             }
             let result = failures.isEmpty ? "Browser protection active · foreground checks every 250 ms; background sweep every 2 seconds" : failures.joined(separator: " · ")
             Task { @MainActor [weak self] in

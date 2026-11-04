@@ -46,7 +46,7 @@ struct HistoryView: View {
         let range = stats.range(period, offset: offset)
         let totals = stats.totals(in: range)
         let buckets = stats.buckets(period, in: range)
-        let day = focusDay(stats: stats, range: range, buckets: buckets)
+        let day = focusDay(stats: stats, range: range)
         VStack(alignment: .leading, spacing: 24) {
             HStack(spacing: 12) {
                 Picker("Period", selection: $period) {
@@ -73,8 +73,8 @@ struct HistoryView: View {
                     Text(period == .year ? "Hours by month" : "Hours by day").font(.headline)
                     HoursChart(period: period, buckets: buckets) { pinnedDay = $0 }
                     HStack(spacing: 18) {
-                        LegendKey(label: "Worked") { RoundedRectangle(cornerRadius: 2).fill(WorkPhase.work.color).frame(width: 9, height: 9) }
-                        LegendKey(label: "Overtime") { RoundedRectangle(cornerRadius: 2).fill(WorkPhase.overtime.color).frame(width: 9, height: 9) }
+                        LegendKey(label: "Worked") { Swatch(color: WorkPhase.work.color) }
+                        LegendKey(label: "Overtime") { Swatch(color: WorkPhase.overtime.color) }
                         LegendKey(label: "Planned") { Rectangle().fill(Color.primary).frame(width: 12, height: 2) }
                         Spacer()
                         if period != .year { Text("Click a day to see how it unfolded").foregroundStyle(.secondary) }
@@ -102,7 +102,7 @@ struct HistoryView: View {
     }
 
     /// The pinned day, else today, else the last worked day in the shown period.
-    private func focusDay(stats: WorkStats, range: DateInterval, buckets: [HistoryBucket]) -> Date? {
+    private func focusDay(stats: WorkStats, range: DateInterval) -> Date? {
         if let pinnedDay, range.contains(pinnedDay) { return pinnedDay }
         if range.contains(store.now) { return store.now }
         return stats.intervals(in: range).last?.start
@@ -191,6 +191,12 @@ private struct ProgressTrack: View {
             }
         }.frame(height: 8)
     }
+}
+
+/// The small colored square that keys a phase in legends and tooltips.
+private struct Swatch: View {
+    let color: Color
+    var body: some View { RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 9, height: 9) }
 }
 
 private struct LegendKey<Swatch: View>: View {
@@ -331,7 +337,7 @@ struct DayTimeline: View {
     /// How close, in points, the pointer must be to a tick to show its event rather than the interval under it.
     private static let tickReach: CGFloat = 5
     var body: some View {
-        let totals = intervals.reduce(into: PhaseTotals()) { $0.seconds[$1.kind, default: 0] += $1.seconds(at: now) }
+        let totals = PhaseTotals(intervals, at: now)
         VStack(alignment: .leading, spacing: 14) {
             if intervals.isEmpty {
                 Text("No time recorded on this day.").foregroundStyle(.secondary).frame(height: 60)
@@ -341,9 +347,7 @@ struct DayTimeline: View {
             HStack(spacing: 18) {
                 // Overtime is listed only on days that had some.
                 ForEach(WorkPhase.allCases.filter { $0 != .overtime || totals[$0] > 0 }, id: \.self) { phase in
-                    LegendKey(label: "\(phase.label) · \(hours(totals[phase]))") {
-                        RoundedRectangle(cornerRadius: 2).fill(phase.color).frame(width: 9, height: 9)
-                    }
+                    LegendKey(label: "\(phase.label) · \(hours(totals[phase]))") { Swatch(color: phase.color) }
                 }
             }.font(.caption)
             let pauses = intervals.filter { $0.kind == .pause }
@@ -394,10 +398,10 @@ struct DayTimeline: View {
                             xEnd: .value("End", touchesNext && end.timeIntervalSince(item.start) > gap * 2 ? end.addingTimeInterval(-gap) : end),
                             y: .value("Day", "Day"), height: .fixed(28))
                         // Backfilled work is drawn lighter, so time added afterwards never looks like timed work.
-                        .foregroundStyle(item.kind.color.opacity(item.backfilled == true ? 0.45 : 1))
+                        .foregroundStyle(item.kind.color.opacity(item.backfilled ? 0.45 : 1))
                         .cornerRadius(4)
                         .opacity(hovered == nil || hovered == item.id ? 1 : 0.45)
-                        .accessibilityLabel(item.backfilled == true ? "\(item.kind.label), backfilled" : item.kind.label)
+                        .accessibilityLabel(item.backfilled ? "\(item.kind.label), backfilled" : item.kind.label)
                         .accessibilityValue("\(item.start.formatted(date: .omitted, time: .shortened)) to \(end.formatted(date: .omitted, time: .shortened)), \(hours(item.seconds(at: now)))")
                 }
                 ForEach(events) { event in
@@ -440,8 +444,8 @@ struct DayTimeline: View {
                     } else if let item = intervals.first(where: { $0.id == hovered }) {
                         Tooltip {
                             HStack(spacing: 6) {
-                                RoundedRectangle(cornerRadius: 2).fill(item.kind.color).frame(width: 9, height: 9)
-                                Text("\(item.kind.label)\(item.backfilled == true ? " (backfilled)" : "") · \(hours(item.seconds(at: now)))").fontWeight(.semibold)
+                                Swatch(color: item.kind.color)
+                                Text("\(item.kind.label)\(item.backfilled ? " (backfilled)" : "") · \(hours(item.seconds(at: now)))").fontWeight(.semibold)
                             }
                             Text("\(item.start.formatted(date: .omitted, time: .shortened)) – \((item.end ?? now).formatted(date: .omitted, time: .shortened))").foregroundStyle(.secondary)
                             if let reason = item.reason { Text("“\(reason)”").frame(maxWidth: 260, alignment: .leading) }
@@ -542,7 +546,7 @@ private struct SessionList: View {
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 12) {
                 ForEach(sessions) { session in
                     let worked = session.worked(at: now)
-                    let totals = WorkPhase.allCases.reduce(into: PhaseTotals()) { $0.seconds[$1] = session.seconds($1, at: now) }
+                    let totals = PhaseTotals(session.intervals, at: now)
                     GridRow(alignment: .center) {
                         Image(systemName: icon(session)).foregroundStyle(.secondary).help(status(session))
                         VStack(alignment: .leading, spacing: 2) {

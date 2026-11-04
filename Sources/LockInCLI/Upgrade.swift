@@ -12,14 +12,14 @@ enum Upgrade {
     #endif
 
     private struct Release: Decodable {
-        struct Asset: Decodable { var name: String; var browser_download_url: URL }
-        var tag_name: String
+        struct Asset: Decodable { var name: String; var browserDownloadUrl: URL }
+        var tagName: String
         var assets: [Asset]
     }
 
     static func run() throws -> Int32 {
         let latest = try release()
-        let version = latest.tag_name.hasPrefix("v") ? String(latest.tag_name.dropFirst()) : latest.tag_name
+        let version = latest.tagName.hasPrefix("v") ? String(latest.tagName.dropFirst()) : latest.tagName
         if let installed = bundleVersion(of: installedApp) {
             switch compare(installed, version) {
             case .orderedSame: print("Lock In \(installed) is the latest release."); return 0
@@ -30,27 +30,27 @@ enum Upgrade {
             print("Installing Lock In \(version)")
         }
 
-        let assetName = "LockIn-\(latest.tag_name)-macos-\(architecture).zip"
+        let assetName = "LockIn-\(latest.tagName)-macos-\(architecture).zip"
         guard let asset = latest.assets.first(where: { $0.name == assetName }) else {
-            throw UsageError("\(latest.tag_name) has no \(assetName) download.")
+            throw UsageError("\(latest.tagName) has no \(assetName) download.")
         }
         let work = FileManager.default.temporaryDirectory.appendingPathComponent("lockin-upgrade-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: work) }
         let zip = work.appendingPathComponent(assetName)
-        try download(asset.browser_download_url, to: zip)
+        try download(asset.browserDownloadUrl, to: zip)
         try tool("/usr/bin/ditto", "-x", "-k", zip.path, work.path)
 
         let app = work.appendingPathComponent("Lock In.app")
-        guard bundleVersion(of: app) == version else { throw UsageError("The \(latest.tag_name) download doesn't contain Lock In \(version).") }
+        guard bundleVersion(of: app) == version else { throw UsageError("The \(latest.tagName) download doesn't contain Lock In \(version).") }
         // Only a Developer ID signed, notarized build is installed, as Gatekeeper would require of a download.
         do {
             try tool("/usr/bin/codesign", "--verify", "--deep", "--strict", app.path)
             try tool("/usr/sbin/spctl", "--assess", "--type", "execute", app.path)
-        } catch { throw UsageError("The \(latest.tag_name) download failed signature checks, so it wasn't installed.") }
+        } catch { throw UsageError("The \(latest.tagName) download failed signature checks, so it wasn't installed.") }
         let script = app.appendingPathComponent("Contents/Resources/install.sh")
         guard FileManager.default.fileExists(atPath: script.path) else {
-            throw UsageError("\(latest.tag_name) predates lockin upgrade. Download it from https://github.com/\(repository)/releases.")
+            throw UsageError("\(latest.tagName) predates lockin upgrade. Download it from https://github.com/\(repository)/releases.")
         }
 
         let install = Process()
@@ -81,7 +81,9 @@ enum Upgrade {
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("lockin-cli", forHTTPHeaderField: "User-Agent")
         let data = try fetch(request)
-        do { return try JSONDecoder().decode(Release.self, from: data) }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        do { return try decoder.decode(Release.self, from: data) }
         catch { throw UsageError("Couldn't read the latest release from GitHub.") }
     }
 

@@ -16,9 +16,7 @@ import AppKit
         .commands {
             CommandGroup(replacing: .newItem) {}
             CommandMenu("Focus") {
-                Button(store.active ? "Stop focusing" : "Start focusing") {
-                    store.active ? store.stop() : store.start()
-                }.keyboardShortcut("f", modifiers: [.command, .shift]).disabled(store.locked)
+                Button(store.active ? "Stop focusing" : "Start focusing") { store.toggleFocus() }.keyboardShortcut("f", modifiers: [.command, .shift]).disabled(store.locked)
             }
         }
         MenuBarExtra(isInserted: $showMenuBarItem) {
@@ -40,10 +38,7 @@ import AppKit
     func connect(_ store: Store) {
         self.store = store
         if shortcut == nil {
-            shortcut = GlobalShortcut { [weak store] in
-                guard let store else { return }
-                store.active ? store.stop() : store.start()
-            }
+            shortcut = GlobalShortcut { [weak store] in store?.toggleFocus() }
         }
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }

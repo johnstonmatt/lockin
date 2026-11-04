@@ -17,6 +17,10 @@ public enum HistoryPeriod: String, CaseIterable, Identifiable, Sendable {
 public struct PhaseTotals: Equatable, Sendable {
     public var seconds: [WorkPhase: Double] = [:]
     public init() {}
+    /// Each interval's length, by phase; open intervals count up to `now`.
+    public init(_ intervals: [WorkInterval], at now: Date) {
+        for item in intervals { seconds[item.kind, default: 0] += item.seconds(at: now) }
+    }
     public subscript(_ phase: WorkPhase) -> Double { seconds[phase, default: 0] }
     public var total: Double { seconds.values.reduce(0, +) }
     /// Work and overtime together.
@@ -66,7 +70,7 @@ public struct WorkStats: Sendable {
         }
     }
     public func totals(in range: DateInterval) -> PhaseTotals {
-        intervals(in: range).reduce(into: PhaseTotals()) { $0.seconds[$1.kind, default: 0] += $1.seconds(at: now) }
+        PhaseTotals(intervals(in: range), at: now)
     }
     public func target(in range: DateInterval) -> Double {
         sessions.filter { $0.startedAt >= range.start && $0.startedAt < range.end }.reduce(0) { $0 + $1.targetSeconds }

@@ -5,7 +5,7 @@ import LockInCore
 struct PreferencesView: View {
     @EnvironmentObject var store: Store
     @State private var password = ""
-    @State private var event = "start"
+    @State private var event = HookEvent.start
     @AppStorage("showMenuBarItem") private var showMenuBarItem = true
     @AppStorage("showMenuBarCountdown") private var showMenuBarCountdown = false
     @State private var restoringMenuBarItem = false
@@ -46,10 +46,10 @@ struct PreferencesView: View {
         Card {
             Label("Workflows", systemImage: "terminal").font(.headline)
             Picker("Run script on", selection: $event) {
-                Text("Focus starts").tag("start"); Text("Focus ends").tag("stop")
-                Text("Overtime starts").tag("overtime"); Text("Break starts").tag("break"); Text("Focus resumes").tag("resume"); Text("Session pauses").tag("pause")
+                ForEach(HookEvent.allCases, id: \.self) { Text($0.label).tag($0) }
             }
-            TextEditor(text: Binding(get: { store.profile.hooks[event] ?? "" }, set: { value in store.updateProfile { $0.hooks[event] = value } }))
+            TextEditor(text: Binding(get: { store.profile.hooks[event.rawValue] ?? "" },
+                                     set: { value in store.updateProfile { $0.hooks[event.rawValue] = value } }))
                 .font(.system(.body, design: .monospaced)).frame(height: 110).lockInEditor().disabled(!store.canEdit)
             Text("Optional shell commands run as your user through /bin/zsh. Available variables: LOCKIN_EVENT, LOCKIN_PROFILE, LOCKIN_MODE. Leave blank to do nothing.")
                 .font(.caption).foregroundStyle(.secondary)

@@ -19,10 +19,10 @@ func run(_ arguments: [String]) -> Int32 {
         }
         return 0
     } catch let error as UsageError {
-        FileHandle.standardError.write(Data("lockin: \(error.message)\n".utf8))
+        printError(error.message)
         return 2
     } catch {
-        FileHandle.standardError.write(Data("lockin: \(error.localizedDescription)\n".utf8))
+        printError(error.localizedDescription)
         return 1
     }
 }
@@ -54,8 +54,13 @@ private func send(_ invocation: Invocation) throws -> Int32 {
 
 /// Prints the app's reply: its message on stdout if done, on stderr if refused.
 func report(_ reply: RemoteReply) -> Int32 {
-    if reply.ok { print(reply.message) } else { FileHandle.standardError.write(Data("lockin: \(reply.message)\n".utf8)) }
+    if reply.ok { print(reply.message) } else { printError(reply.message) }
     return reply.ok ? 0 : 1
+}
+
+/// Writes "lockin: <message>" to stderr.
+func printError(_ message: String) {
+    FileHandle.standardError.write(Data("lockin: \(message)\n".utf8))
 }
 
 exit(run(Array(CommandLine.arguments.dropFirst())))
