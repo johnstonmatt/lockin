@@ -29,7 +29,7 @@ public struct BackfillResult: Equatable, Sendable {
 }
 
 /// The state before the last backfill, for undo.
-public struct BackfillRecord: Codable, Sendable {
+public struct BackfillRecord: Codable, Equatable, Sendable {
     public var sessionID: UUID
     public var createdSession: Bool
     public var previousStartedAt: Date

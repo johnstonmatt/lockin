@@ -9,10 +9,10 @@ enum BreakCountdown {
             let reply = try AppClient.send(.takeBreak)
             guard reply.ok else { return report(reply) }
         }
-        let interrupted = Flag()
+        let interrupted = Box(false)
         signal(SIGINT, SIG_IGN)
         let interrupt = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
-        interrupt.setEventHandler { interrupted.isSet = true }
+        interrupt.setEventHandler { interrupted.value = true }
         interrupt.resume()
         let line = StatusLine()
         while true {
@@ -25,7 +25,7 @@ enum BreakCountdown {
                 line.finish("Lock In quit, so the break isn't being counted. Run lockin open to reopen it."); return 1
             }
             let left = log.breakBalance(at: Date())
-            if interrupted.isSet {
+            if interrupted.value {
                 let reply = try AppClient.send(.resume)
                 line.finish(reply.ok ? "Back to work · \(WorkStats.clock(left)) of break kept." : "lockin: \(reply.message)")
                 return reply.ok ? 0 : 1
@@ -41,8 +41,6 @@ enum BreakCountdown {
         return "Break over · back to work."
     }
 }
-
-private final class Flag: @unchecked Sendable { var isSet = false }
 
 /// One line that redraws in place on a terminal. When output is piped, only the first and final lines are written.
 private final class StatusLine {

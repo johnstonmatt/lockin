@@ -4,26 +4,19 @@ import LockInCore
 /// Talks to the Lock In app: reads its files for status, and sends it commands to change anything.
 enum AppClient {
     static let bundleID = "app.lockin.mac"
-    static let journalDirectory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".lockin")
-    static let preferencesFile = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("LockIn/state.json")
 
     static var isRunning: Bool { !NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).isEmpty }
 
     /// The journal as the app last saved it. A missing file means Lock In hasn't been used yet.
     static func snapshot() throws -> Snapshot {
-        let file = journalDirectory.appendingPathComponent("state.json")
-        var journal = JournalState()
-        var checkpoint = Date()
-        if FileManager.default.fileExists(atPath: file.path) {
-            do { journal = try JSONDecoder().decode(JournalState.self, from: Data(contentsOf: file)) }
-            catch { throw UsageError("Couldn't read \(file.path): \(error.localizedDescription)") }
-            checkpoint = (try? FileManager.default.attributesOfItem(atPath: file.path)[.modificationDate] as? Date) ?? checkpoint
-        }
-        let preferences = (try? Data(contentsOf: preferencesFile)).flatMap { try? JSONDecoder().decode(SavedState.self, from: $0) }
+        let contents: Storage.Contents
+        do { contents = try Storage.load(from: Storage.directory, legacyPreferences: Storage.legacyPreferencesFile) }
+        catch { throw UsageError(error.localizedDescription) }
+        for problem in contents.skipped { FileHandle.standardError.write(Data("lockin: skipped sessions/\(problem)\n".utf8)) }
         let running = isRunning
         // Without the app, nothing is counting: on relaunch the gap since the checkpoint becomes a pause.
-        return Snapshot(journal: journal, locked: preferences?.session?.locked == true, appRunning: running, asOf: running ? Date() : checkpoint)
+        return Snapshot(journal: contents.journal, locked: contents.preferences.session?.locked == true, appRunning: running,
+                        asOf: running ? Date() : contents.checkpoint ?? Date())
     }
 
     static func open(background: Bool) throws {
@@ -56,19 +49,24 @@ enum AppClient {
     private static func request(_ command: RemoteCommand, timeout: TimeInterval) -> RemoteReply? {
         let center = DistributedNotificationCenter.default()
         let id = UUID().uuidString
-        let box = ReplyBox()
-        let observer = center.addObserver(forName: RemoteChannel.reply, object: id, queue: nil) { note in
-            box.reply = RemoteChannel.decode(RemoteReply.self, from: note.userInfo)
+        // Set on this thread's run loop by the observer.
+        let reply = Box<RemoteReply?>(nil)
+        let observer = center.addObserver(forName: RemoteChannel.app.reply, object: id, queue: nil) { note in
+            reply.value = RemoteChannel.decode(RemoteReply.self, from: note.userInfo)
         }
         defer { center.removeObserver(observer) }
-        center.postNotificationName(RemoteChannel.request, object: id, userInfo: RemoteChannel.encode(command), deliverImmediately: true)
+        center.postNotificationName(RemoteChannel.app.request, object: id, userInfo: RemoteChannel.encode(command), deliverImmediately: true)
         let deadline = Date().addingTimeInterval(timeout)
-        while box.reply == nil && Date() < deadline {
+        while reply.value == nil && Date() < deadline {
             RunLoop.current.run(mode: .default, before: min(deadline, Date().addingTimeInterval(0.05)))
         }
-        return box.reply
+        return reply.value
     }
 }
 
-/// The reply, set on this thread's run loop by the notification observer.
-private final class ReplyBox: @unchecked Sendable { var reply: RemoteReply? }
+/// A mutable value shared with a callback that runs on another thread or later on this one.
+/// Each use reads it only after the callback is done writing, which is why it can be `@unchecked Sendable`.
+final class Box<Value>: @unchecked Sendable {
+    var value: Value
+    init(_ value: Value) { self.value = value }
+}

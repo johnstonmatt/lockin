@@ -33,9 +33,10 @@ public struct Todo: Identifiable, Codable, Equatable, Sendable {
     public var linkLabel: String? {
         guard let url = linkURL else { return nil }
         if let service = linkService { return service.label }
-        let host = url.host ?? link
-        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+        return Self.site(url.host ?? link)
     }
+    /// A host without its "www." prefix.
+    private static func site(_ host: String) -> String { host.hasPrefix("www.") ? String(host.dropFirst(4)) : host }
     /// A title for a task given only a link, read from the URL itself (no network access):
     /// "FUNC-1033 github workflows cannot exceed 3600s" for a Linear issue, "owner/repo#12" for a GitHub PR or issue,
     /// the page name for Notion, and the host and path for anything else.
@@ -61,8 +62,8 @@ public struct Todo: Identifiable, Codable, Equatable, Sendable {
             }
         case nil: break
         }
-        let site = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
-        return parts.isEmpty ? site : site + "/" + parts.joined(separator: "/")
+        let name = site(host)
+        return parts.isEmpty ? name : name + "/" + parts.joined(separator: "/")
     }
     public var hasTitle: Bool { !title.isBlank }
     /// Has a title and a usable (or no) link: what a task needs before it can be saved.
@@ -105,7 +106,7 @@ public enum WorkPhase: String, Codable, CaseIterable, Sendable {
     /// Work and overtime: time that's focused, blocked and earns break credit.
     public var isFocused: Bool { self == .work || self == .overtime }
 }
-public struct WorkInterval: Identifiable, Codable, Sendable {
+public struct WorkInterval: Identifiable, Codable, Equatable, Sendable {
     public var id = UUID()
     public var kind: WorkPhase
     public var start: Date
@@ -116,7 +117,14 @@ public struct WorkInterval: Identifiable, Codable, Sendable {
     public var backfilled: Bool?
     public func seconds(at now: Date) -> Double { max(0, (end ?? now).timeIntervalSince(start)) }
 }
-public struct WorkLog: Identifiable, Codable, Sendable {
+/// Something that happened during a session, in your words: "Deployed to staging", "Interrupted by a call".
+public struct SessionEvent: Identifiable, Equatable, Sendable {
+    public var id = UUID()
+    public var at: Date
+    public var text: String
+    public init(at: Date, text: String) { self.at = at; self.text = text }
+}
+public struct WorkLog: Identifiable, Codable, Equatable, Sendable {
     public var id = UUID()
     public var startedAt: Date
     public var endedAt: Date?
@@ -127,6 +135,12 @@ public struct WorkLog: Identifiable, Codable, Sendable {
     /// Why the session was ended before reaching its target; nil for natural finishes.
     public var endReason: String?
     public var reviewed = false
+    /// Notes recorded during the session with `lockin event add`, in the order they were added.
+    public var events: [SessionEvent] = []
+    /// The pre-1.0 journal's keys, for migrating it. Events came later, so they're not among them.
+    private enum CodingKeys: String, CodingKey {
+        case id, startedAt, endedAt, targetSeconds, todos, intervals, finishedNaturally, endReason, reviewed
+    }
     public var phase: WorkPhase? { endedAt == nil ? intervals.last?.kind : nil }
     public init(todos: [Todo], targetSeconds: Double, now: Date) {
         self.todos = todos; self.targetSeconds = targetSeconds; startedAt = now
@@ -166,6 +180,11 @@ public struct WorkLog: Identifiable, Codable, Sendable {
         finish(at: now, natural: true); return true
     }
     /// Ends an open session before its target, e.g. to start a new day. Requires a nonblank explanation.
+    /// Records an event on an open session. Requires nonblank text, which is saved trimmed.
+    public mutating func addEvent(_ text: String, at now: Date) -> Bool {
+        guard !text.isBlank, endedAt == nil else { return false }
+        events.append(SessionEvent(at: now, text: text.trimmed)); return true
+    }
     public mutating func endEarly(reason: String, at now: Date) -> Bool {
         guard !reason.isBlank, endedAt == nil else { return false }
         endReason = reason.trimmed
@@ -195,7 +214,7 @@ public struct WorkLog: Identifiable, Codable, Sendable {
         }
     }
 }
-public struct JournalState: Codable {
+public struct JournalState: Codable, Equatable {
     public var draft: [Todo] = [Todo()]
     public var hours = 2.0
     public var sessions: [WorkLog] = []
@@ -205,61 +224,9 @@ public struct JournalState: Codable {
     /// What the last `lockin backfill` changed, so `lockin backfill --undo` can put it back.
     public var lastBackfill: BackfillRecord?
     public init() {}
-}
-
-/// Human-readable YAML. JSON-quoted scalar strings are valid YAML and safely escape user text.
-public enum SessionYAML {
-    private static func quoted(_ value: String) -> String {
-        let data = try! JSONEncoder().encode(value)
-        return String(decoding: data, as: UTF8.self)
-    }
-    private static func quoted(_ value: String?) -> String { value.map(quoted) ?? "null" }
-    /// ISO 8601 in UTC, e.g. "2026-11-03T09:00:00Z".
-    private static func date(_ value: Date?) -> String { quoted(value?.formatted(.iso8601)) }
-    public static func encode(_ log: WorkLog, at now: Date) -> String {
-        let worked = log.worked(at: now)
-        // Version 2: a task's `linear_url` became `link`, plus `link_service`.
-        // Version 3: `overtime` intervals and `overtime_seconds`; `work_seconds` stays work before the target.
-        // Version 4: `backfilled` on intervals, true for work added afterwards with `lockin backfill`.
-        var lines = [
-            "schema_version: 4",
-            "id: \(quoted(log.id.uuidString))",
-            "started_at: \(date(log.startedAt))",
-            "ended_at: \(date(log.endedAt))",
-            "target_work_seconds: \(log.targetSeconds)",
-            "finished_naturally: \(log.finishedNaturally)",
-            "end_reason: \(quoted(log.endReason))",
-            "reviewed: \(log.reviewed)",
-            "work_seconds: \(log.seconds(.work, at: now))",
-            "overtime_seconds: \(log.seconds(.overtime, at: now))",
-            "break_seconds: \(log.seconds(.break, at: now))",
-            "pause_seconds: \(log.seconds(.pause, at: now))",
-            "earned_break_seconds: \(worked / 12)",
-            "remaining_break_seconds: \(log.breakBalance(at: now))",
-            "todos:\(log.todos.isEmpty ? " []" : "")",
-        ]
-        for todo in log.todos {
-            lines += [
-                "  - id: \(quoted(todo.id.uuidString))",
-                "    title: \(quoted(todo.title))",
-                "    link: \(quoted(todo.link.isEmpty ? nil : todo.link))",
-                "    link_service: \(quoted(todo.linkService?.rawValue))",
-                "    completed: \(todo.completed)",
-                "    roll_into_next_session: \(todo.rollForward)",
-                "    source_todo_id: \(quoted(todo.sourceTodoID?.uuidString))",
-            ]
-        }
-        lines.append("intervals:")
-        for interval in log.intervals {
-            lines += [
-                "  - kind: \(interval.kind.rawValue)",
-                "    started_at: \(date(interval.start))",
-                "    ended_at: \(date(interval.end))",
-                "    duration_seconds: \(interval.seconds(at: now))",
-                "    reason: \(quoted(interval.reason))",
-                "    backfilled: \(interval.backfilled == true)",
-            ]
-        }
-        return lines.joined(separator: "\n") + "\n"
-    }
+    /// The session still running, if any. Only the last unfinished session counts.
+    public var openSessionIndex: Int? { sessions.lastIndex { $0.endedAt == nil } }
+    public var openSession: WorkLog? { openSessionIndex.map { sessions[$0] } }
+    /// A work target is more than zero and at most a day.
+    public static func isValidTarget(hours: Double) -> Bool { hours.isFinite && hours > 0 && hours <= 24 }
 }

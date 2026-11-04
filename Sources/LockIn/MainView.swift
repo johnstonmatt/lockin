@@ -103,7 +103,7 @@ struct FocusView: View {
                         .font(.callout).foregroundStyle(WorkPhase.overtime.color)
                 }
                 HStack {
-                    Label("Break balance: " + Store.clock(log.breakBalance(at: store.now)), systemImage: "cup.and.saucer")
+                    Label("Break balance: " + WorkStats.clock(log.breakBalance(at: store.now)), systemImage: "cup.and.saucer")
                     Spacer(); Text("5 min earned per hour worked").font(.caption).foregroundStyle(.secondary)
                 }
                 if log.phase == .pause { Text(log.intervals.last?.reason ?? "").foregroundStyle(.secondary) }

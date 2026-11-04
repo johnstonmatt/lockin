@@ -20,6 +20,11 @@ final class ParseTests: XCTestCase {
         XCTAssertEqual(try parse(["task", "done", "2"]), .setTaskCompleted(number: 2, completed: true))
         XCTAssertEqual(try parse(["task", "undo", "2"]), .setTaskCompleted(number: 2, completed: false))
         XCTAssertEqual(try parse(["task", "rm", "1"]), .deleteTask(number: 1))
+        XCTAssertEqual(try parse(["event", "add", "Deployed to staging"]), .addEvent(text: "Deployed to staging"))
+        XCTAssertThrowsError(try parse(["event"]))
+        XCTAssertThrowsError(try parse(["event", "add"]))
+        XCTAssertThrowsError(try parse(["event", "add", "two", "words"]), "text with spaces must be quoted")
+        XCTAssertThrowsError(try parse(["event", "remove", "x"]))
     }
     func testUsageErrors() {
         for args in [["pause"], ["pause", "  "], ["end"], ["start", "--hours", "25"], ["start", "--hours"], ["status", "extra"],

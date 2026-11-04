@@ -25,7 +25,7 @@ struct PreferencesView: View {
             Label("Your rhythm", systemImage: "timer").font(.headline)
             Text("Set your work target when planning each session. Every hour of work earns five minutes of break; pauses require a written reason and do not spend your balance.")
                 .font(.callout).foregroundStyle(.secondary)
-            Text("Session journals, TODOs, breaks and pauses are saved as YAML in ~/.lockin. A state.json file alongside them restores the app and your draft plan.").font(.caption).foregroundStyle(.secondary)
+            Text("Each session is saved as JSON in ~/.lockin/sessions, with its tasks, breaks, pauses and events. Profiles and your plan are in ~/.lockin/settings.json. The formats are documented as JSON Schemas in the Lock In repository.").font(.caption).foregroundStyle(.secondary)
         }
         Card {
             Label("Password protection", systemImage: "lock").font(.headline)

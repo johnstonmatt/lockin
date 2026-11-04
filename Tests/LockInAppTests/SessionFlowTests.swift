@@ -8,7 +8,11 @@ final class SessionFlowTests: XCTestCase {
     override func tearDown() { try? FileManager.default.removeItem(at: directory) }
     /// A store backed by this test's temporary directory; calling it again simulates relaunching the app.
     @MainActor private func makeStore() -> Store {
-        Store(stateFile: directory.appendingPathComponent("preferences.json"), journalDirectory: directory, runTimer: false, enforceBlocking: false, listen: false)
+        Store(directory: directory, runTimer: false, enforceBlocking: false, channel: nil)
+    }
+    /// A session's file as saved.
+    private func sessionFile(_ id: UUID) throws -> SessionFile {
+        try FileFormat.decode(SessionFile.self, from: Data(contentsOf: Storage.sessionFile(id, in: directory)), supported: FileFormat.sessionVersion)
     }
     @MainActor func testPlanPauseCompletionReviewAndDiskJournal() async throws {
         let store = makeStore()
@@ -17,13 +21,12 @@ final class SessionFlowTests: XCTestCase {
         store.start()
         XCTAssertTrue(store.active)
         let id = try XCTUnwrap(store.workLog?.id)
-        let yamlFile = directory.appendingPathComponent("session-\(id).yaml")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: yamlFile.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: Storage.sessionFile(id, in: directory).path))
         store.pause(reason: "  ")
         XCTAssertEqual(store.workLog?.phase, .work)
         store.pause(reason: "Meeting")
         XCTAssertEqual(store.workLog?.phase, .pause)
-        XCTAssertTrue(try String(contentsOf: yamlFile, encoding: .utf8).contains("reason: \"Meeting\""))
+        XCTAssertEqual(try sessionFile(id).intervals.last?.reason, "Meeting")
         store.resume()
         // Advance the work interval without waiting or running browser automation.
         let index = store.journal.sessions.count - 1
@@ -43,10 +46,10 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertNil(store.journal.pendingReviewID)
         XCTAssertEqual(store.journal.draft[0].title, "Finish next time")
         XCTAssertNotNil(store.journal.draft[0].sourceTodoID)
-        let yaml = try String(contentsOf: yamlFile, encoding: .utf8)
-        XCTAssertTrue(yaml.contains("finished_naturally: true"))
-        XCTAssertTrue(yaml.contains("reviewed: true"))
-        XCTAssertTrue(yaml.contains("roll_into_next_session: true"))
+        let saved = try sessionFile(id)
+        XCTAssertTrue(saved.finishedNaturally)
+        XCTAssertTrue(saved.reviewed)
+        XCTAssertEqual(saved.tasks.first?.rollIntoNextSession, true)
         let restored = makeStore()
         XCTAssertEqual(restored.journal.draft[0].title, "Finish next time")
         XCTAssertEqual(restored.journal.sessions.count, 1)
@@ -66,9 +69,9 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertNil(store.workLog)
         XCTAssertEqual(store.journal.pendingReviewID, id)
         XCTAssertTrue(store.showReview)
-        let yaml = try String(contentsOf: directory.appendingPathComponent("session-\(id).yaml"), encoding: .utf8)
-        XCTAssertTrue(yaml.contains("finished_naturally: false"))
-        XCTAssertTrue(yaml.contains("end_reason: \"Starting a new day\""))
+        let saved = try sessionFile(id)
+        XCTAssertFalse(saved.finishedNaturally)
+        XCTAssertEqual(saved.endReason, "Starting a new day")
         store.journal.sessions[0].todos[0].rollForward = true
         store.completeReview()
         XCTAssertEqual(store.journal.draft.map(\.title), ["Yesterday's task"])
@@ -121,9 +124,9 @@ final class SessionFlowTests: XCTestCase {
         store.pause(reason: "Lunch")
         XCTAssertTrue(store.addTask(title: "Added while paused"))
         XCTAssertEqual(store.workLog?.todos.map(\.title), ["Planned", "Surprise bug", "Added while paused"])
-        let yaml = try String(contentsOf: directory.appendingPathComponent("session-\(id).yaml"), encoding: .utf8)
-        XCTAssertTrue(yaml.contains("title: \"Surprise bug\""))
-        XCTAssertTrue(yaml.contains("linear.app\\/acme\\/issue\\/ABC-1"), "JSON-quoted YAML escapes slashes")
+        let saved = try sessionFile(id)
+        XCTAssertEqual(saved.tasks[1].title, "Surprise bug")
+        XCTAssertEqual(saved.tasks[1].link, "https://linear.app/acme/issue/ABC-1")
         let restored = makeStore()
         XCTAssertEqual(restored.workLog?.todos.count, 3)
     }
@@ -199,13 +202,13 @@ final class SessionFlowTests: XCTestCase {
         let id = try XCTUnwrap(store.workLog?.id)
         store.endSession(reason: "Done")
         store.completeReview()
-        let file = directory.appendingPathComponent("session-\(id).yaml")
+        let file = Storage.sessionFile(id, in: directory)
         try "edited elsewhere".write(to: file, atomically: true, encoding: .utf8)
         store.journal.draft = [Todo(title: "Second")]
         store.start()
-        store.saveAll()
+        store.persist()
         XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "edited elsewhere", "an unchanged session is skipped")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("session-\(try XCTUnwrap(store.workLog?.id)).yaml").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: Storage.sessionFile(try XCTUnwrap(store.workLog?.id), in: directory).path))
     }
     @MainActor func testTasksCanBeTickedOffMidSession() throws {
         let store = makeStore()
@@ -235,6 +238,47 @@ final class SessionFlowTests: XCTestCase {
         store.pauseForSleep()
         store.resumeAfterWake()
         XCTAssertEqual(store.workLog?.phase, .break)
+    }
+    /// Pre-1.0 data: the journal in ~/.lockin/state.json and preferences in Application Support.
+    @MainActor func testFirstLaunchMigratesAndArchivesTheOldFiles() throws {
+        let legacyPreferences = directory.appendingPathComponent("old-preferences.json")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var preferences = SavedState()
+        preferences.profiles = [Profile(name: "Writing", symbol: "pencil")]
+        preferences.selectedProfileID = preferences.profiles[0].id
+        preferences.session = FocusSession(profile: preferences.profiles[0], locked: true)
+        var journal = JournalState()
+        journal.sessions = [WorkLog(todos: [Todo(title: "Draft")], targetSeconds: 3600, now: Date())]
+        journal.draft = [Todo(title: "Later")]
+        try JSONEncoder().encode(preferences).write(to: legacyPreferences)
+        try JSONEncoder().encode(journal).write(to: directory.appendingPathComponent("state.json"))
+
+        let store = Store(directory: directory, legacyPreferences: legacyPreferences, runTimer: false, enforceBlocking: false, channel: nil)
+        XCTAssertNil(store.message, store.message ?? "")
+        XCTAssertEqual(store.profile.name, "Writing")
+        XCTAssertTrue(store.locked, "Hardcore Mode carries over")
+        XCTAssertEqual(store.workLog?.id, journal.sessions[0].id)
+        XCTAssertEqual(store.journal.draft.map(\.title), ["Later"])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: Storage.settingsFile(in: directory).path))
+        XCTAssertEqual(try sessionFile(journal.sessions[0].id).tasks.map(\.title), ["Draft"])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("legacy/state.json").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("legacy/preferences.json").path))
+
+        let relaunched = makeStore()
+        XCTAssertEqual(relaunched.profile.name, "Writing", "the next launch reads the new files")
+        XCTAssertEqual(relaunched.workLog?.id, journal.sessions[0].id)
+    }
+    @MainActor func testUnreadableSettingsAreNeverOverwritten() throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let settings = Storage.settingsFile(in: directory)
+        try "{ broken".write(to: settings, atomically: true, encoding: .utf8)
+        let store = makeStore()
+        XCTAssertNotNil(store.message)
+        store.journal.draft = [Todo(title: "Task")]
+        store.start()
+        XCTAssertFalse(store.active, "nothing starts that couldn't be saved")
+        store.persist()
+        XCTAssertEqual(try String(contentsOf: settings, encoding: .utf8), "{ broken")
     }
     @MainActor func testWakingLeavesOtherPausesAlone() throws {
         let store = makeStore()

@@ -25,14 +25,14 @@ public struct BlockedApp: Identifiable, Codable, Equatable, Sendable {
 }
 /// Enforcement settings for the running session. Phase and timing live in the session's `WorkLog`.
 /// Keys written by older builds (startedAt, mode, deadline, Pomodoro counters) are ignored when decoding.
-public struct FocusSession: Codable, Sendable {
+public struct FocusSession: Codable, Equatable, Sendable {
     /// A snapshot, so profile edits made during a session don't change what's being enforced.
     public var profile: Profile
     public var locked: Bool
     public init(profile: Profile, locked: Bool) { self.profile = profile; self.locked = locked }
 }
 /// Keys written by older builds (schedules, firedSchedules, records) are ignored when decoding.
-public struct SavedState: Codable {
+public struct SavedState: Codable, Equatable {
     public var profiles = [Profile(name: "Focus")]
     public var selectedProfileID: UUID?
     public var session: FocusSession?

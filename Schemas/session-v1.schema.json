@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/johnstonmatt/lockin/main/Schemas/session-v1.schema.json",
+  "title": "Lock In session",
+  "description": "One work session, stored as ~/.lockin/sessions/<id>.json. These files are the record of your work: History, the day review and `lockin history` are built from them. Lock In rewrites a session's file when the session changes, and the open session's file on every checkpoint. A file that doesn't match this schema is skipped and never overwritten.",
+  "type": "object",
+  "required": ["schema_version", "id", "started_at", "target_seconds", "finished_naturally", "reviewed", "tasks", "intervals", "events"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string", "description": "This schema's URL, for editors that validate JSON." },
+    "schema_version": { "const": 1 },
+    "id": { "$ref": "#/$defs/uuid", "description": "The session's identity. The file is named after it." },
+    "started_at": { "$ref": "#/$defs/timestamp" },
+    "ended_at": { "$ref": "#/$defs/timestamp", "description": "Absent while the session is open. At most one session is open." },
+    "checkpoint_at": {
+      "$ref": "#/$defs/timestamp",
+      "description": "While the session is open, the last time Lock In confirmed it was running. If Lock In quits unexpectedly, the time after this becomes a pause."
+    },
+    "target_seconds": { "type": "number", "minimum": 0, "description": "The work target. Work beyond it is recorded as overtime." },
+    "finished_naturally": { "type": "boolean", "description": "True when the session was finished after reaching its target; false when it was ended early." },
+    "end_reason": { "type": "string", "description": "Why the session was ended before its target." },
+    "reviewed": { "type": "boolean", "description": "Whether the end-of-session review was saved." },
+    "tasks": { "type": "array", "items": { "$ref": "#/$defs/task" } },
+    "intervals": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/interval" },
+      "description": "The session's timeline in order. Each interval ends where the next starts; only the last can be open."
+    },
+    "events": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/event" },
+      "description": "Notes recorded during the session with `lockin event add`, in the order they were added."
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601. Lock In writes UTC with microseconds, e.g. 2026-11-03T09:00:00.000000Z."
+    },
+    "task": {
+      "type": "object",
+      "required": ["id", "title", "completed", "roll_into_next_session"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/uuid" },
+        "title": { "type": "string", "description": "May be empty only for the planner's blank row." },
+        "link": { "type": "string", "description": "An http(s) link for the task, such as a Linear issue, GitHub pull request or Notion page." },
+        "completed": { "type": "boolean" },
+        "roll_into_next_session": { "type": "boolean", "description": "Chosen in the review: copy this task into the next session's plan." },
+        "source_task_id": { "$ref": "#/$defs/uuid", "description": "The task this one was carried forward from." }
+      }
+    },
+    "event": {
+      "type": "object",
+      "description": "Something that happened during the session, in your words.",
+      "required": ["id", "at", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/uuid" },
+        "at": { "$ref": "#/$defs/timestamp" },
+        "text": { "type": "string", "minLength": 1 }
+      }
+    },
+    "interval": {
+      "type": "object",
+      "required": ["id", "kind", "started_at"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/uuid" },
+        "kind": {
+          "enum": ["work", "overtime", "break", "pause"],
+          "description": "work: toward the target. overtime: work after the target was reached. break: earned break time. pause: time away, with a reason."
+        },
+        "started_at": { "$ref": "#/$defs/timestamp" },
+        "ended_at": { "$ref": "#/$defs/timestamp", "description": "Absent on the interval still running." },
+        "reason": { "type": "string", "description": "Why a pause was taken." },
+        "backfilled": { "type": "boolean", "description": "True for work added afterwards with `lockin backfill`." }
+      }
+    }
+  }
+}

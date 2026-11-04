@@ -57,7 +57,7 @@ import AppKit
             NSApp.showMainWindow()
             return .terminateCancel
         }
-        store?.saveAll(); return .terminateNow
+        store?.persist(); return .terminateNow
     }
 }
 

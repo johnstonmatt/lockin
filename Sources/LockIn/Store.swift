@@ -15,15 +15,17 @@ import LockInCore
     @Published var showEndSession = false
     @Published var showReview = false
     @Published var showPlanner = false
-    private var journalWritable = true
+    /// False when saved data couldn't be read: saving over it would lose it, so nothing is saved until it's fixed.
+    private var writable = true
     private var lastCheckpoint = Date.distantPast
-    /// The YAML last written for each session, so finished sessions aren't rewritten on every checkpoint.
-    private var writtenYAML: [UUID: String] = [:]
-    private let journalDirectory: URL
+    private let directory: URL
+    private let legacyPreferences: URL?
+    private let writer: StorageWriter
+    private var legacyArchived = false
     /// Replaceable so tests can exercise update handling without quitting the test runner.
     var terminate: () -> Void = { NSApp?.terminate(nil) }
     private let enforceBlocking: Bool
-    var workLog: WorkLog? { journal.sessions.last(where: { $0.endedAt == nil }) }
+    var workLog: WorkLog? { journal.openSession }
     var reviewIndex: Int? { journal.sessions.firstIndex { $0.id == journal.pendingReviewID } }
     let blocker = Blocker()
     private var timer: Timer?
@@ -32,8 +34,6 @@ import LockInCore
     /// The pause the Mac's sleep started and the phase it interrupted, so waking can pick up where sleep left off.
     private var sleepPause: (id: UUID, phase: WorkPhase)?
     private var remoteControl: RemoteControl?
-    private var storageAvailable = true
-    private let file: URL
     enum Page: String, CaseIterable, Identifiable {
         case focus = "Focus", distractions = "Distractions", history = "History", settings = "Settings"
         var id: String { rawValue }
@@ -46,15 +46,24 @@ import LockInCore
             }
         }
     }
-    /// `listen` accepts commands from the `lockin` CLI; tests turn it off so they can't answer a real CLI.
-    init(stateFile: URL? = nil, journalDirectory: URL? = nil, runTimer: Bool = true, enforceBlocking: Bool = true, listen: Bool = true) {
-        self.journalDirectory = journalDirectory ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".lockin")
+    /// `directory` replaces ~/.lockin, e.g. in tests. Only the real ~/.lockin picks up the pre-1.0 preferences
+    /// file by default, so a test directory never reads or moves them.
+    /// `channel` is where `lockin` CLI commands arrive; tests pass nil, or a channel of their own, so they never
+    /// answer the real CLI and the real app never answers them.
+    init(directory: URL? = nil, legacyPreferences: URL? = nil, runTimer: Bool = true, enforceBlocking: Bool = true, channel: RemoteChannel? = .app) {
+        self.directory = directory ?? Storage.directory
+        self.legacyPreferences = directory == nil ? Storage.legacyPreferencesFile : legacyPreferences
         self.enforceBlocking = enforceBlocking
-        file = stateFile ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("LockIn/state.json")
-        if FileManager.default.fileExists(atPath: file.path) {
-            do { state = try JSONDecoder().decode(SavedState.self, from: Data(contentsOf: file)) }
-            catch { storageAvailable = false; message = "Could not read saved data. The original file is preserved. \(error.localizedDescription)" }
+        var contents: Storage.Contents?
+        do { contents = try Storage.load(from: self.directory, legacyPreferences: self.legacyPreferences) }
+        catch { writable = false; message = "\(error.localizedDescription)\n\nLock In won't save anything until this is fixed, so the file is left as it is." }
+        // Migrating from pre-1.0 files writes everything; otherwise only what changes is written.
+        writer = StorageWriter(directory: self.directory, contents: contents?.isLegacy == true ? nil : contents)
+        if let contents {
+            state = contents.preferences; journal = contents.journal
+            if !contents.skipped.isEmpty {
+                message = "Some session files couldn't be read. They're left as they are and don't appear in History:\n" + contents.skipped.joined(separator: "\n")
+            }
         }
         if state.profiles.isEmpty { state.profiles = [Profile()] }
         if !state.profiles.contains(where: { $0.id == state.selectedProfileID }) { state.selectedProfileID = state.profiles[0].id }
@@ -65,9 +74,11 @@ import LockInCore
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.resumeAfterWake() }
         }
-        loadJournal()
+        restoreSession(checkpoint: contents?.checkpoint)
+        // Migrate pre-1.0 files straight away rather than on the first change.
+        if contents?.isLegacy == true { persist() }
         tick()
-        if listen { remoteControl = RemoteControl(store: self) }
+        if let channel { remoteControl = RemoteControl(store: self, channel: channel) }
         guard runTimer else { return }
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
@@ -81,35 +92,27 @@ import LockInCore
     var targetReached: Bool { workLog?.targetReached(at: now) == true }
     var canEdit: Bool { !locked && (profile.passwordHash == nil || unlockedProfiles.contains(profile.id)) && !active }
     var timerText: String {
-        guard let log = workLog else { return Self.clock(journal.hours * 3600) }
-        if log.phase == .break { return Self.clock(log.breakBalance(at: now)) }
+        guard let log = workLog else { return WorkStats.clock(journal.hours * 3600) }
+        if log.phase == .break { return WorkStats.clock(log.breakBalance(at: now)) }
         // Past the target, the timer counts overtime up instead of work down.
-        if log.targetReached(at: now) { return "+" + Self.clock(log.seconds(.overtime, at: now)) }
-        return Self.clock(log.remaining(at: now))
-    }
-    static func clock(_ seconds: Double) -> String { WorkStats.clock(seconds) }
-    func save() {
-        guard storageAvailable else { return }
-        do {
-            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try Self.encoder.encode(state).write(to: file, options: .atomic)
-        } catch { message = "Could not save changes: \(error.localizedDescription)" }
+        if log.targetReached(at: now) { return "+" + WorkStats.clock(log.seconds(.overtime, at: now)) }
+        return WorkStats.clock(log.remaining(at: now))
     }
     func updateProfile(_ edit: (inout Profile) -> Void) {
         guard canEdit, let index = state.profiles.firstIndex(where: { $0.id == profile.id }) else { return }
-        edit(&state.profiles[index]); save()
+        edit(&state.profiles[index]); persist()
     }
-    func select(_ id: UUID) { guard !active else { return }; state.selectedProfileID = id; save() }
+    func select(_ id: UUID) { guard !active else { return }; state.selectedProfileID = id; persist() }
     func addProfile() {
         guard !active else { return }
         let new = Profile(name: "New profile", symbol: "sparkles")
-        state.profiles.append(new); state.selectedProfileID = new.id; save()
+        state.profiles.append(new); state.selectedProfileID = new.id; persist()
     }
     func deleteProfile() {
         guard canEdit, state.profiles.count > 1 else { return }
         let id = profile.id
         state.profiles.removeAll { $0.id == id }
-        state.selectedProfileID = state.profiles[0].id; save()
+        state.selectedProfileID = state.profiles[0].id; persist()
     }
     func addWebsite(_ raw: String) {
         guard let rule = WebsiteRule.normalize(raw) else { message = "Enter a domain or website URL, such as reddit.com or youtube.com/shorts."; return }
@@ -117,24 +120,23 @@ import LockInCore
         if var session = state.session {
             guard session.profile.blockingMode == .block else { message = "Allow lists cannot be expanded during a session."; return }
             if !session.profile.websites.contains(rule) { session.profile.websites.append(rule) }
-            state.session = session; save(); return
+            state.session = session; persist(); return
         }
         updateProfile { if !$0.websites.contains(rule) { $0.websites.append(rule) } }
     }
     func start() {
-        guard !active, storageAvailable, journalWritable else { return }
+        guard !active, writable else { return }
         now = Date()
         guard journal.pendingReviewID == nil else { showReview = true; return }
         let todos = journal.draft.filter(\.hasTitle)
         guard !todos.isEmpty else { showPlanner = true; message = "Add at least one task before starting."; return }
-        guard todos.allSatisfy(\.validLink), journal.hours.isFinite, journal.hours > 0, journal.hours <= 24 else {
+        guard todos.allSatisfy(\.validLink), JournalState.isValidTarget(hours: journal.hours) else {
             message = "Use a work target between 0 and 24 hours, and full web links (https://…) for tasks."; return
         }
         let log = WorkLog(todos: todos, targetSeconds: journal.hours * 3600, now: Date())
-        journal.sessions.append(log)
-        guard persistJournal() else { journal.sessions.removeLast(); return }
+        guard commitJournal({ $0.sessions.append(log) }) else { return }
         state.session = FocusSession(profile: profile, locked: lockSession)
-        showPlanner = false; runHook("start"); save(); tick()
+        showPlanner = false; runHook("start"); persist(); tick()
     }
     func stop() {
         guard !locked, workLog != nil else { return }
@@ -180,7 +182,7 @@ import LockInCore
         journal.sessions[index].advance(at: now)
         guard change(&journal.sessions[index], now) else { return false }
         if journal.sessions[index].phase?.isFocused != true { blocker.deactivate() }
-        runHook(hook); saveAll(); return true
+        runHook(hook); persist(); return true
     }
     /// Adds a task to the running session. Returns false (with a message) if the title is blank or the link is invalid.
     @discardableResult func addTask(title: String, link: String = "") -> Bool {
@@ -201,6 +203,13 @@ import LockInCore
         todos[task].completed = completed
         return replaceTasks(todos, inSession: index)
     }
+    /// Records an event on the running session, e.g. from `lockin event add`. Returns false if the text is blank.
+    @discardableResult func addEvent(_ text: String) -> Bool {
+        guard let index = activeLogIndex else { return false }
+        var log = journal.sessions[index]
+        guard log.addEvent(text, at: Date()) else { return false }
+        return commitJournal { $0.sessions[index] = log }
+    }
     /// Removes a task from the running session. Its record goes too: it won't appear in the review or journal.
     @discardableResult func deleteTask(id: UUID) -> Bool {
         guard let index = activeLogIndex, journal.sessions[index].todos.contains(where: { $0.id == id }) else { return false }
@@ -217,10 +226,7 @@ import LockInCore
     }
     /// Saves a session's new task list, rolling back if the journal can't be written.
     private func replaceTasks(_ todos: [Todo], inSession index: Int) -> Bool {
-        let previous = journal.sessions[index].todos
-        journal.sessions[index].todos = todos
-        guard persistJournal() else { journal.sessions[index].todos = previous; return false }
-        return true
+        commitJournal { $0.sessions[index].todos = todos }
     }
     /// Used by Scripts/install-app.sh: pauses a working or break phase, remembers to resume after relaunch, then quits.
     /// A pause you started yourself is left alone. Hardcore Mode refuses, as it does for any quit.
@@ -230,8 +236,7 @@ import LockInCore
             pause(reason: "Updating Lock In")
             if let log = workLog {
                 guard log.phase == .pause else { return }
-                journal.resumeAfterUpdateID = log.intervals.last?.id
-                guard persistJournal() else { journal.resumeAfterUpdateID = nil; return }
+                guard commitJournal({ $0.resumeAfterUpdateID = log.intervals.last?.id }) else { return }
             }
         }
         terminate()
@@ -256,9 +261,9 @@ import LockInCore
     private func conclude(_ log: WorkLog, presentReview: Bool = true) {
         runHook("stop"); state.session = nil; blocker.deactivate()
         journal.pendingReviewID = log.id; showReview = presentReview; showPause = false; showEndSession = false; page = .focus
-        saveAll(); NSApp?.showMainWindow()
+        persist(); NSApp?.showMainWindow()
     }
-    private var activeLogIndex: Int? { journal.sessions.lastIndex { $0.endedAt == nil } }
+    var activeLogIndex: Int? { journal.openSessionIndex }
     func tick() {
         now = Date()
         if let index = activeLogIndex {
@@ -272,71 +277,69 @@ import LockInCore
                 } else {
                     runHook("resume")
                 }
-                saveAll()
+                persist()
             } else if now.timeIntervalSince(lastCheckpoint) >= 10 {
-                saveAll()
+                persist()
             }
         }
         if let session = state.session, workLog?.phase?.isFocused == true, enforceBlocking { blocker.enforce(profile: session.profile) }
         else { blocker.deactivate() }
     }
-    private func loadJournal() {
-        let snapshot = journalDirectory.appendingPathComponent("state.json")
-        do {
-            if FileManager.default.fileExists(atPath: snapshot.path) {
-                journal = try JSONDecoder().decode(JournalState.self, from: Data(contentsOf: snapshot))
+    /// Picks up the open session, or the review, where the last run left off.
+    private func restoreSession(checkpoint: Date?) {
+        if let index = activeLogIndex {
+            if state.session == nil { state.session = FocusSession(profile: profile, locked: false) }
+            // Time while the app was not running earns no credit. Preserve it as an interruption.
+            if let checkpoint, Date().timeIntervalSince(checkpoint) > 15 {
+                journal.sessions[index].advance(at: checkpoint)
+                _ = journal.sessions[index].pause(reason: "App was not running; resumed from saved checkpoint", at: checkpoint)
             }
-            if workLog != nil {
-                if state.session == nil { state.session = FocusSession(profile: profile, locked: false) }
-                // Time while the app was not running earns no credit. Preserve it as an interruption.
-                if let checkpoint = try? FileManager.default.attributesOfItem(atPath: snapshot.path)[.modificationDate] as? Date,
-                   Date().timeIntervalSince(checkpoint) > 15 {
-                    let index = activeLogIndex!
-                    journal.sessions[index].advance(at: checkpoint)
-                    _ = journal.sessions[index].pause(reason: "App was not running; resumed from saved checkpoint", at: checkpoint)
-                }
-            } else if state.session != nil {
-                // Retain legacy history; old sessions cannot earn undocumented work credit.
-                state.session = nil
-            }
-            if let last = journal.sessions.last, last.endedAt != nil, !last.reviewed {
-                journal.pendingReviewID = last.id
-                state.session = nil
-            }
-            showReview = journal.pendingReviewID != nil
-            if let pauseID = journal.resumeAfterUpdateID {
-                journal.resumeAfterUpdateID = nil
-                if workLog?.intervals.last?.id == pauseID { resume() } else { persistJournal() }
-            }
-        } catch { journalWritable = false; message = "Could not read ~/.lockin/state.json. Original data is preserved. \(error.localizedDescription)" }
+        } else if state.session != nil {
+            // Retain legacy history; old sessions cannot earn undocumented work credit.
+            state.session = nil
+        }
+        if let last = journal.sessions.last, last.endedAt != nil, !last.reviewed {
+            journal.pendingReviewID = last.id
+            state.session = nil
+        }
+        showReview = journal.pendingReviewID != nil
+        if let pauseID = journal.resumeAfterUpdateID {
+            journal.resumeAfterUpdateID = nil
+            if workLog?.intervals.last?.id == pauseID { resume() } else { persist() }
+        }
     }
-    /// Saves both the session journal (~/.lockin) and preferences/session state.
-    func saveAll() { persistJournal(); save() }
-    private static let encoder: JSONEncoder = {
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]; return encoder
-    }()
-    @discardableResult func persistJournal() -> Bool {
-        guard journalWritable else { return false }
+    /// Saves ~/.lockin: settings, and each session file that changed. The open session's file is always written,
+    /// since it carries the checkpoint. The first save after migrating moves the pre-1.0 files into ~/.lockin/legacy.
+    @discardableResult func persist() -> Bool {
+        guard writable else { return false }
         do {
-            try FileManager.default.createDirectory(at: journalDirectory, withIntermediateDirectories: true)
-            for log in journal.sessions {
-                let yaml = SessionYAML.encode(log, at: now)
-                guard writtenYAML[log.id] != yaml else { continue }
-                try yaml.write(to: journalDirectory.appendingPathComponent("session-\(log.id).yaml"), atomically: true, encoding: .utf8)
-                writtenYAML[log.id] = yaml
-            }
-            try Self.encoder.encode(journal).write(to: journalDirectory.appendingPathComponent("state.json"), options: .atomic)
-            lastCheckpoint = Date(); return true
-        } catch { message = "Could not save session tracking in ~/.lockin: \(error.localizedDescription)"; return false }
+            try writer.write(preferences: state, journal: journal, checkpoint: Date())
+            lastCheckpoint = Date()
+        } catch { message = "Could not save to ~/.lockin: \(error.localizedDescription)"; return false }
+        if !legacyArchived {
+            legacyArchived = true
+            do { try Storage.archiveLegacyFiles(in: directory, legacyPreferences: legacyPreferences) }
+            catch { message = "Your data is saved, but the old files couldn't be moved into ~/.lockin/legacy: \(error.localizedDescription)" }
+        }
+        return true
+    }
+    /// Applies a journal change and saves it. If the change throws or the journal can't be written,
+    /// the journal is put back as it was, so what's on screen always matches what's on disk.
+    @discardableResult func commitJournal(_ change: (inout JournalState) throws -> Void) rethrows -> Bool {
+        let previous = journal
+        do { try change(&journal) } catch { journal = previous; throw error }
+        guard persist() else { journal = previous; return false }
+        return true
     }
     func completeReview() {
         guard let index = reviewIndex, journal.sessions[index].todos.allSatisfy(\.validLink) else { message = "Check the task links before saving."; return }
-        let previous = journal
-        journal.draft = journal.sessions[index].rolledTodos
-        if journal.draft.isEmpty { journal.draft = [Todo()] }
-        journal.sessions[index].reviewed = true
-        journal.pendingReviewID = nil
-        if persistJournal() { showReview = false; showPlanner = true } else { journal = previous }
+        let saved = commitJournal { journal in
+            journal.draft = journal.sessions[index].rolledTodos
+            if journal.draft.isEmpty { journal.draft = [Todo()] }
+            journal.sessions[index].reviewed = true
+            journal.pendingReviewID = nil
+        }
+        if saved { showReview = false; showPlanner = true }
     }
     func setPassword(_ password: String) {
         guard !password.isEmpty else { return }

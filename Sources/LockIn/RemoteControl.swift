@@ -6,16 +6,16 @@ import LockInCore
 @MainActor final class RemoteControl {
     private weak var store: Store?
     private var observer: NSObjectProtocol?
-    init(store: Store) {
+    init(store: Store, channel: RemoteChannel) {
         self.store = store
-        observer = DistributedNotificationCenter.default().addObserver(forName: RemoteChannel.request, object: nil, queue: .main) { [weak self] note in
+        observer = DistributedNotificationCenter.default().addObserver(forName: channel.request, object: nil, queue: .main) { [weak self] note in
             guard let requestID = note.object as? String,
                   let command = RemoteChannel.decode(RemoteCommand.self, from: note.userInfo) else { return }
             MainActor.assumeIsolated {
                 guard let store = self?.store else { return }
                 // Delivered immediately: NSApplication otherwise holds distributed notifications while the app is inactive.
                 DistributedNotificationCenter.default().postNotificationName(
-                    RemoteChannel.reply, object: requestID, userInfo: RemoteChannel.encode(store.perform(command)), deliverImmediately: true)
+                    channel.reply, object: requestID, userInfo: RemoteChannel.encode(store.perform(command)), deliverImmediately: true)
             }
         }
     }
@@ -39,9 +39,8 @@ extension Store {
                 return .failure("Review your last session in Lock In before starting a new one.")
             }
             if let hours {
-                guard hours.isFinite, hours > 0, hours <= 24 else { return .failure("Use a work target between 0 and 24 hours.") }
-                journal.hours = hours
-                persistJournal()
+                guard JournalState.isValidTarget(hours: hours) else { return .failure("Use a work target between 0 and 24 hours.") }
+                commitJournal { $0.hours = hours }
             }
             if !journal.draft.contains(where: \.hasTitle) {
                 return .failure("Add at least one task before starting: lockin task add \"…\"")
@@ -95,38 +94,40 @@ extension Store {
             }
             // Saving the review replaces the draft, so adding to it now would be lost.
             if journal.pendingReviewID != nil { return .failure("Review your last session in Lock In before planning the next one.") }
-            let previous = journal.draft
             // The planner keeps a blank row ready for typing; it isn't a task.
-            journal.draft = journal.draft.filter(\.hasTitle) + [todo]
-            guard persistJournal() else { journal.draft = previous; return refused("Lock In couldn't save the task.") }
+            guard commitJournal({ $0.draft = $0.draft.filter(\.hasTitle) + [todo] }) else { return refused("Lock In couldn't save the task.") }
             return .success("Added “\(todo.title)” to the next session's plan.")
 
         case .updateTask(let id, let title, let link):
-            if workLog != nil {
-                guard let todo = workLog?.todos.first(where: { $0.id == id }) else { return .failure("No such task in this session.") }
-                let updated = todo.with(title: title ?? todo.title, link: link ?? todo.link)
-                guard updated.hasTitle else { return .failure("A task needs a title.") }
-                return updateTask(id: id, title: updated.title, link: updated.link) ? .success("Updated “\(updated.title)”.") : refused("Lock In couldn't update the task.")
+            let inSession = workLog != nil
+            if !inSession, journal.pendingReviewID != nil { return .failure("Review your last session in Lock In before planning the next one.") }
+            guard let todo = (workLog?.todos ?? journal.draft).first(where: { $0.id == id }) else {
+                return .failure(inSession ? "No such task in this session." : "No such task in the plan.")
             }
-            if journal.pendingReviewID != nil { return .failure("Review your last session in Lock In before planning the next one.") }
-            guard let index = journal.draft.firstIndex(where: { $0.id == id }) else { return .failure("No such task in the plan.") }
-            let todo = journal.draft[index]
             let updated = todo.with(title: title ?? todo.title, link: link ?? todo.link)
             guard updated.hasTitle else { return .failure("A task needs a title.") }
             guard updated.validLink else { return .failure(Todo.linkRequirement) }
-            journal.draft[index] = updated
-            guard persistJournal() else { journal.draft[index] = todo; return refused("Lock In couldn't save the plan.") }
+            if inSession {
+                return updateTask(id: id, title: updated.title, link: updated.link) ? .success("Updated “\(updated.title)”.") : refused("Lock In couldn't update the task.")
+            }
+            guard commitJournal({ journal in
+                if let index = journal.draft.firstIndex(where: { $0.id == id }) { journal.draft[index] = updated }
+            }) else { return refused("Lock In couldn't save the plan.") }
             return .success("Updated “\(updated.title)”.")
 
         case .backfill(let start, let end):
-            let previous = journal
             let phase = workLog?.phase
-            if let index = journal.sessions.lastIndex(where: { $0.endedAt == nil }) { journal.sessions[index].advance(at: now) }
-            let result: BackfillResult
-            do { result = try journal.backfill(from: start, to: end, now: now) }
-            catch let error as BackfillError { journal = previous; return .failure(Self.explain(error)) }
-            catch { journal = previous; return .failure(error.localizedDescription) }
-            guard persistJournal() else { journal = previous; return refused("Lock In couldn't save the backfill.") }
+            var backfilled: BackfillResult?
+            do {
+                let saved = try commitJournal { journal in
+                    if let index = journal.openSessionIndex { journal.sessions[index].advance(at: now) }
+                    backfilled = try journal.backfill(from: start, to: end, now: now)
+                }
+                guard saved else { return refused("Lock In couldn't save the backfill.") }
+            }
+            catch let error as BackfillError { return .failure(Self.explain(error)) }
+            catch { return .failure(error.localizedDescription) }
+            guard let result = backfilled else { return refused("Lock In couldn't save the backfill.") }
             // Earlier work can mean the target has now been reached.
             if phase == .work, workLog?.phase == .overtime { runHook("overtime") }
             var message = "Backfilled \(WorkStats.format(result.addedSeconds)): \(Self.moment(start)) → \(Self.moment(min(end, now)))"
@@ -137,10 +138,16 @@ extension Store {
             return .success(message + " Undo with: lockin backfill --undo")
 
         case .undoBackfill:
-            let previous = journal
-            guard journal.undoBackfill(now: now) else { return .failure("There's no backfill to undo.") }
-            guard persistJournal() else { journal = previous; return refused("Lock In couldn't save the undo.") }
+            guard journal.lastBackfill != nil else { return .failure("There's no backfill to undo.") }
+            var undone = false
+            guard commitJournal({ undone = $0.undoBackfill(now: now) }) else { return refused("Lock In couldn't save the undo.") }
+            guard undone else { return .failure("There's no backfill to undo.") }
             return .success("Removed the last backfill.")
+
+        case .addEvent(let text):
+            guard workLog != nil else { return .failure("No session is running. Events are recorded on the running session.") }
+            if text.isBlank { return .failure("An event needs some text.") }
+            return addEvent(text) ? .success("Recorded “\(text.trimmed)”.") : refused("Lock In couldn't record the event.")
 
         case .setTaskCompleted(let id, let completed):
             guard workLog != nil else { return .failure("Tasks can be checked off during a session.") }
@@ -151,10 +158,11 @@ extension Store {
                 return deleteTask(id: id) ? .success("Removed.") : refused("No such task in this session.")
             }
             guard journal.draft.contains(where: { $0.id == id }) else { return .failure("No such task in the plan.") }
-            let previous = journal.draft
-            journal.draft.removeAll { $0.id == id }
-            if journal.draft.isEmpty { journal.draft = [Todo()] }
-            guard persistJournal() else { journal.draft = previous; return refused("Lock In couldn't save the plan.") }
+            let saved = commitJournal { journal in
+                journal.draft.removeAll { $0.id == id }
+                if journal.draft.isEmpty { journal.draft = [Todo()] }
+            }
+            guard saved else { return refused("Lock In couldn't save the plan.") }
             return .success("Removed.")
         }
     }

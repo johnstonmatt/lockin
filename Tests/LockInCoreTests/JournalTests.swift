@@ -18,7 +18,6 @@ final class JournalTests: XCTestCase {
         XCTAssertEqual(log.seconds(.work, at: nextMorning), 3600)
         XCTAssertEqual(log.lastActiveAt, start.addingTimeInterval(3600))
         XCTAssertFalse(log.endEarly(reason: "again", at: nextMorning))
-        XCTAssertTrue(SessionYAML.encode(log, at: nextMorning).contains("end_reason: \"Starting a new day\""))
     }
     func testTwoHoursEarnTenMinutes() {
         let log = makeLog()
@@ -86,10 +85,8 @@ final class JournalTests: XCTestCase {
         XCTAssertEqual(log.intervals.filter { $0.kind == .work }.count, 1, "no zero-length work interval")
         XCTAssertTrue(log.pause(reason: "Lunch", at: start.addingTimeInterval(8000)))
         XCTAssertEqual(log.focusPhase(at: start.addingTimeInterval(9000)), .overtime)
-        let yaml = SessionYAML.encode(log, at: start.addingTimeInterval(9000))
-        XCTAssertTrue(yaml.contains("kind: overtime"))
-        XCTAssertTrue(yaml.contains("work_seconds: 3600.0"))
-        XCTAssertTrue(yaml.contains("overtime_seconds: 3800.0"))
+        XCTAssertEqual(log.seconds(.work, at: start.addingTimeInterval(9000)), 3600)
+        XCTAssertEqual(log.seconds(.overtime, at: start.addingTimeInterval(9000)), 3800)
     }
     func testRolloverCopiesSelectedTasksWithLineage() {
         var log = makeLog()
@@ -104,16 +101,14 @@ final class JournalTests: XCTestCase {
         XCTAssertFalse(next[0].rollForward)
         XCTAssertEqual(next[0].link, log.todos[0].link)
     }
-    func testYAMLEscapesUserTextAndTracksPause() {
+    func testEventsNeedTextAndAnOpenSession() {
         var log = makeLog()
-        log.todos[0].title = "Quote: \"ship\"\nnext line"
-        _ = log.pause(reason: "Call: urgent\nsecond line", at: start.addingTimeInterval(60))
-        let yaml = SessionYAML.encode(log, at: start.addingTimeInterval(120))
-        XCTAssertTrue(yaml.contains("kind: pause"))
-        XCTAssertTrue(yaml.contains("duration_seconds: 60.0"))
-        XCTAssertTrue(yaml.contains("\\nnext line"))
-        XCTAssertTrue(yaml.contains("reason: \"Call: urgent\\nsecond line\""))
-        XCTAssertTrue(yaml.contains("started_at: \"2023-11-14T22:13:20Z\""), "timestamps are ISO 8601 UTC")
+        XCTAssertFalse(log.addEvent("  ", at: start))
+        XCTAssertTrue(log.addEvent(" Deployed \n", at: start.addingTimeInterval(60)))
+        XCTAssertEqual(log.events.map(\.text), ["Deployed"])
+        XCTAssertEqual(log.events.first?.at, start.addingTimeInterval(60))
+        _ = log.endEarly(reason: "Done", at: start.addingTimeInterval(120))
+        XCTAssertFalse(log.addEvent("Too late", at: start.addingTimeInterval(180)))
     }
     func testRecoveryRoundTrip() throws {
         var state = JournalState(); var log = makeLog()
@@ -155,8 +150,7 @@ final class JournalTests: XCTestCase {
         XCTAssertTrue(todo.rollForward)
         let encoded = String(decoding: try JSONEncoder().encode(todo), as: UTF8.self)
         XCTAssertTrue(encoded.contains("\"linearURL\""))
-        let yaml = SessionYAML.encode(WorkLog(todos: [todo], targetSeconds: 60, now: start), at: start)
-        XCTAssertTrue(yaml.contains("schema_version: 4"))
-        XCTAssertTrue(yaml.contains("link_service: \"linear\""))
+        let file = SessionFile(WorkLog(todos: [todo], targetSeconds: 60, now: start), checkpoint: nil)
+        XCTAssertEqual(file.tasks.first?.link, "https://linear.app/acme/issue/ABC-1", "session files call it link")
     }
 }

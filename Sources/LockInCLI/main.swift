@@ -46,6 +46,7 @@ private func send(_ invocation: Invocation) throws -> Int32 {
         let (start, end) = try BackfillRange.resolve(range, now: Date())
         command = .backfill(start: start, end: end)
     case .undoBackfill: command = .undoBackfill
+    case .addEvent(let text): command = .addEvent(text: text)
     case .open, .help, .status, .tasks, .history, .takeBreak, .upgrade: return 0
     }
     return report(try AppClient.send(command))
