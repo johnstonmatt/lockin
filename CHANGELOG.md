@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.4.0](https://github.com/johnstonmatt/lockin/compare/v0.3.0...v0.4.0) (2026-11-04)
+
+
+### Features
+
+* add an Install CLI button to Settings ([b471c1c](https://github.com/johnstonmatt/lockin/commit/b471c1ccba8ad1409b541bc85522bcdd28e8cea2))
+* add the lockin command line tool ([892a2d0](https://github.com/johnstonmatt/lockin/commit/892a2d0b07972eb6527a141db9e1221df0943ace))
+* resume automatically when the Mac wakes ([fbaf1af](https://github.com/johnstonmatt/lockin/commit/fbaf1af157f9b5445489b947a91c6bbb898aac02))
+
+
+### Refactoring
+
+* rename Insights to History ([84bf9e1](https://github.com/johnstonmatt/lockin/commit/84bf9e18ea3a0be9eb82da0fa5de5a9a3bb85dd0))
+
+
+### Documentation
+
+* remove Focus comparisons and clarify release token permissions ([1586207](https://github.com/johnstonmatt/lockin/commit/1586207ea5e160d3a3b90cd5c071ae8423a3bb7d))
+
 ## [0.3.0](https://github.com/johnstonmatt/lockin/compare/v0.2.0...v0.3.0) (2026-11-03)
 
 
