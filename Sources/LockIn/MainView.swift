@@ -35,7 +35,7 @@ struct MainView: View {
                     switch store.page {
                     case .focus: FocusView()
                     case .distractions: DistractionsView()
-                    case .insights: InsightsView()
+                    case .history: HistoryView()
                     case .settings: PreferencesView()
                     }
                 }.padding(32).frame(maxWidth: 950)
@@ -68,7 +68,7 @@ struct MainView: View {
         switch store.page {
         case .focus: return "Make room for what matters."
         case .distractions: return "Choose what stays outside your focus time."
-        case .insights: return "Small sessions add up."
+        case .history: return "Small sessions add up."
         case .settings: return "A routine that works for you."
         }
     }

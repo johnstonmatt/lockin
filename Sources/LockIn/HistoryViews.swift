@@ -35,9 +35,9 @@ extension Color {
 private let surface = Color(nsColor: .controlBackgroundColor)
 private func hours(_ seconds: Double) -> String { WorkStats.format(seconds) }
 
-struct InsightsView: View {
+struct HistoryView: View {
     @EnvironmentObject var store: Store
-    @State private var period: InsightsPeriod = .week
+    @State private var period: HistoryPeriod = .week
     @State private var offset = 0
     @State private var pinnedDay: Date?
 
@@ -50,7 +50,7 @@ struct InsightsView: View {
         VStack(alignment: .leading, spacing: 24) {
             HStack(spacing: 12) {
                 Picker("Period", selection: $period) {
-                    ForEach(InsightsPeriod.allCases) { Text($0.rawValue).tag($0) }
+                    ForEach(HistoryPeriod.allCases) { Text($0.rawValue).tag($0) }
                 }.pickerStyle(.segmented).labelsHidden().frame(width: 220)
                 Spacer()
                 if offset != 0 { Button("Now") { offset = 0; pinnedDay = nil } }
@@ -102,7 +102,7 @@ struct InsightsView: View {
     }
 
     /// The pinned day, else today, else the last worked day in the shown period.
-    private func focusDay(stats: WorkStats, range: DateInterval, buckets: [InsightBucket]) -> Date? {
+    private func focusDay(stats: WorkStats, range: DateInterval, buckets: [HistoryBucket]) -> Date? {
         if let pinnedDay, range.contains(pinnedDay) { return pinnedDay }
         if range.contains(store.now) { return store.now }
         return stats.intervals(in: range).last?.start
@@ -132,7 +132,7 @@ struct InsightsView: View {
 }
 
 private struct Summary: View {
-    let stats: WorkStats; let period: InsightsPeriod; let offset: Int
+    let stats: WorkStats; let period: HistoryPeriod; let offset: Int
     let range: DateInterval; let totals: PhaseTotals; let nounPhrase: String
     var body: some View {
         let worked = totals.worked
@@ -240,8 +240,8 @@ private struct HoverOverlay<Tip: View>: View {
 }
 
 private struct HoursChart: View {
-    let period: InsightsPeriod
-    let buckets: [InsightBucket]
+    let period: HistoryPeriod
+    let buckets: [HistoryBucket]
     let onSelect: (Date) -> Void
     @State private var hovered: Date?
     private var unit: Calendar.Component { period.bucket }
@@ -304,10 +304,10 @@ private struct HoursChart: View {
         }
         .frame(height: 220)
     }
-    private func workedText(_ bucket: InsightBucket) -> String {
+    private func workedText(_ bucket: HistoryBucket) -> String {
         "\(hours(bucket.totals.worked)) worked" + (bucket.target > 0 ? " of \(hours(bucket.target)) planned" : "")
     }
-    private func bucket(at date: Date) -> InsightBucket? { buckets.first { $0.start <= date && date < $0.end } }
+    private func bucket(at date: Date) -> HistoryBucket? { buckets.first { $0.start <= date && date < $0.end } }
     private func emphasis(_ start: Date) -> Double { hovered == nil || hovered == start ? 1 : 0.45 }
     private var format: Date.FormatStyle {
         switch period {
