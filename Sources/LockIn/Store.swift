@@ -28,6 +28,7 @@ import LockInCore
     let blocker = Blocker()
     private var timer: Timer?
     private var sleepObserver: NSObjectProtocol?
+    private var remoteControl: RemoteControl?
     private var storageAvailable = true
     private let file: URL
     enum Page: String, CaseIterable, Identifiable {
@@ -42,7 +43,8 @@ import LockInCore
             }
         }
     }
-    init(stateFile: URL? = nil, journalDirectory: URL? = nil, runTimer: Bool = true, enforceBlocking: Bool = true) {
+    /// `listen` accepts commands from the `lockin` CLI; tests turn it off so they can't answer a real CLI.
+    init(stateFile: URL? = nil, journalDirectory: URL? = nil, runTimer: Bool = true, enforceBlocking: Bool = true, listen: Bool = true) {
         self.journalDirectory = journalDirectory ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".lockin")
         self.enforceBlocking = enforceBlocking
         file = stateFile ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -58,6 +60,7 @@ import LockInCore
         }
         loadJournal()
         tick()
+        if listen { remoteControl = RemoteControl(store: self) }
         guard runTimer else { return }
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
@@ -77,10 +80,7 @@ import LockInCore
         if log.targetReached(at: now) { return "+" + Self.clock(log.seconds(.overtime, at: now)) }
         return Self.clock(log.remaining(at: now))
     }
-    static func clock(_ seconds: Double) -> String {
-        let value = max(0, Int(ceil(seconds)))
-        return String(format: "%02d:%02d:%02d", value / 3600, value / 60 % 60, value % 60)
-    }
+    static func clock(_ seconds: Double) -> String { WorkStats.clock(seconds) }
     func save() {
         guard storageAvailable else { return }
         do {
@@ -329,7 +329,7 @@ import LockInCore
         for _ in 0..<20_000 { data = Data(SHA256.hash(data: data)) }
         return data.base64EncodedString()
     }
-    private func runHook(_ event: String) {
+    func runHook(_ event: String) {
         guard let session = state.session, let script = session.profile.hooks[event], !script.isBlank else { return }
         let process = Process(); process.executableURL = URL(fileURLWithPath: "/bin/zsh"); process.arguments = ["-c", script]
         process.environment = ProcessInfo.processInfo.environment.merging([

@@ -376,10 +376,11 @@ struct DayTimeline: View {
                     BarMark(xStart: .value("Start", item.start),
                             xEnd: .value("End", touchesNext && end.timeIntervalSince(item.start) > gap * 2 ? end.addingTimeInterval(-gap) : end),
                             y: .value("Day", "Day"), height: .fixed(28))
-                        .foregroundStyle(item.kind.color)
+                        // Backfilled work is drawn lighter, so time added afterwards never looks like timed work.
+                        .foregroundStyle(item.kind.color.opacity(item.backfilled == true ? 0.45 : 1))
                         .cornerRadius(4)
                         .opacity(hovered == nil || hovered == item.id ? 1 : 0.45)
-                        .accessibilityLabel(item.kind.label)
+                        .accessibilityLabel(item.backfilled == true ? "\(item.kind.label), backfilled" : item.kind.label)
                         .accessibilityValue("\(item.start.formatted(date: .omitted, time: .shortened)) to \(end.formatted(date: .omitted, time: .shortened)), \(hours(item.seconds(at: now)))")
                 }
             }
@@ -400,7 +401,7 @@ struct DayTimeline: View {
                         Tooltip {
                             HStack(spacing: 6) {
                                 RoundedRectangle(cornerRadius: 2).fill(item.kind.color).frame(width: 9, height: 9)
-                                Text("\(item.kind.label) · \(hours(item.seconds(at: now)))").fontWeight(.semibold)
+                                Text("\(item.kind.label)\(item.backfilled == true ? " (backfilled)" : "") · \(hours(item.seconds(at: now)))").fontWeight(.semibold)
                             }
                             Text("\(item.start.formatted(date: .omitted, time: .shortened)) – \((item.end ?? now).formatted(date: .omitted, time: .shortened))").foregroundStyle(.secondary)
                             if let reason = item.reason { Text("“\(reason)”").frame(maxWidth: 260, alignment: .leading) }

@@ -156,7 +156,7 @@ final class JournalTests: XCTestCase {
         let encoded = String(decoding: try JSONEncoder().encode(todo), as: UTF8.self)
         XCTAssertTrue(encoded.contains("\"linearURL\""))
         let yaml = SessionYAML.encode(WorkLog(todos: [todo], targetSeconds: 60, now: start), at: start)
-        XCTAssertTrue(yaml.contains("schema_version: 3"))
+        XCTAssertTrue(yaml.contains("schema_version: 4"))
         XCTAssertTrue(yaml.contains("link_service: \"linear\""))
     }
 }

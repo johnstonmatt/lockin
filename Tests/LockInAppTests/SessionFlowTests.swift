@@ -8,7 +8,7 @@ final class SessionFlowTests: XCTestCase {
     override func tearDown() { try? FileManager.default.removeItem(at: directory) }
     /// A store backed by this test's temporary directory; calling it again simulates relaunching the app.
     @MainActor private func makeStore() -> Store {
-        Store(stateFile: directory.appendingPathComponent("preferences.json"), journalDirectory: directory, runTimer: false, enforceBlocking: false)
+        Store(stateFile: directory.appendingPathComponent("preferences.json"), journalDirectory: directory, runTimer: false, enforceBlocking: false, listen: false)
     }
     @MainActor func testPlanPauseCompletionReviewAndDiskJournal() async throws {
         let store = makeStore()
