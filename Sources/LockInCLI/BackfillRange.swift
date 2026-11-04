@@ -37,24 +37,23 @@ enum BackfillRange {
         if from.hour == to.hour && from.minute == to.minute && !to.isNow && (from.day == nil || to.day == nil) {
             throw UsageError("The range starts and ends at the same time.")
         }
-        let day = TimeInterval(86_400)
+        func shift(_ date: Date, days: Int) -> Date {
+            calendar.date(byAdding: .day, value: days, to: date) ?? date.addingTimeInterval(TimeInterval(days) * 86_400)
+        }
         var start: Date, end: Date
         switch (from.day != nil, to.day != nil || to.isNow) {
         case (true, true):
             start = try dated(from); end = to.isNow ? now : try dated(to)
         case (true, false):
             start = try dated(from); end = try at(to, on: start)
-            if end <= start { end = calendar.date(byAdding: .day, value: 1, to: end) ?? end.addingTimeInterval(day) }
+            if end <= start { end = shift(end, days: 1) }
         case (false, true):
             end = to.isNow ? now : try dated(to); start = try at(from, on: end)
-            if start >= end { start = calendar.date(byAdding: .day, value: -1, to: start) ?? start.addingTimeInterval(-day) }
+            if start >= end { start = shift(start, days: -1) }
         case (false, false):
             end = try at(to, on: now); start = try at(from, on: end)
-            if start >= end { start = calendar.date(byAdding: .day, value: -1, to: start) ?? start.addingTimeInterval(-day) }
-            if end > now {
-                end = calendar.date(byAdding: .day, value: -1, to: end) ?? end.addingTimeInterval(-day)
-                start = calendar.date(byAdding: .day, value: -1, to: start) ?? start.addingTimeInterval(-day)
-            }
+            if start >= end { start = shift(start, days: -1) }
+            if end > now { end = shift(end, days: -1); start = shift(start, days: -1) }
         }
         guard start < end else { throw UsageError("The range ends before it starts.") }
         guard end <= now else { throw UsageError("That range ends in the future.") }

@@ -13,7 +13,9 @@ struct Snapshot {
     var session: WorkLog? { journal.openSession }
     var reviewPending: Bool { journal.pendingReviewID != nil }
     /// The tasks `lockin tasks` numbers: the running session's, or the next session's plan.
-    var tasks: [Todo] { session?.todos ?? journal.draft.filter(\.hasTitle) }
+    var tasks: [Todo] { session?.todos ?? journal.plannedTasks }
+    /// Hardcore Mode holds the running session until its target is reached, as the app's `Store.locked` does.
+    var hardcoreActive: Bool { locked && session?.targetReached(at: asOf) == false }
 
     func task(number: Int) throws -> Todo {
         guard tasks.indices.contains(number - 1) else {
@@ -52,7 +54,7 @@ struct Snapshot {
             }
             var detail = ["Worked \(WorkStats.format(log.worked(at: asOf))) of \(target)"]
             if log.phase != .break { detail.append("break balance \(WorkStats.format(log.breakBalance(at: asOf)))") }
-            if locked && !log.targetReached(at: asOf) { detail.append("Hardcore Mode") }
+            if hardcoreActive { detail.append("Hardcore Mode") }
             lines.append(detail.joined(separator: " · "))
             if !appRunning {
                 lines.append("Lock In isn't running, so time stopped counting at \(time(asOf)). Run lockin to reopen it.")
@@ -143,7 +145,7 @@ struct Snapshot {
         return Status(
             appRunning: appRunning, reviewPending: reviewPending,
             phase: log?.phase?.rawValue, phaseStartedAt: current?.start, pauseReason: current?.reason,
-            locked: locked && log?.targetReached(at: asOf) == false,
+            locked: hardcoreActive,
             targetSeconds: log?.targetSeconds, remainingSeconds: log?.remaining(at: asOf),
             workedSeconds: log?.worked(at: asOf), overtimeSeconds: log?.seconds(.overtime, at: asOf),
             breakBalanceSeconds: log?.breakBalance(at: asOf),

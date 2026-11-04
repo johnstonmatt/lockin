@@ -12,7 +12,7 @@ enum AppClient {
         let contents: Storage.Contents
         do { contents = try Storage.load(from: Storage.directory) }
         catch { throw UsageError(error.localizedDescription) }
-        for problem in contents.skipped { FileHandle.standardError.write(Data("lockin: skipped sessions/\(problem)\n".utf8)) }
+        for problem in contents.skipped { printError("skipped sessions/\(problem)") }
         let running = isRunning
         // Without the app, nothing is counting: on relaunch the gap since the checkpoint becomes a pause.
         return Snapshot(journal: contents.journal, locked: contents.preferences.session?.locked == true, appRunning: running,

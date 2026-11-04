@@ -121,7 +121,7 @@ import LockInCore
         guard !active, writable else { return }
         now = Date()
         guard journal.pendingReviewID == nil else { showReview = true; return }
-        let todos = journal.draft.filter(\.hasTitle)
+        let todos = journal.plannedTasks
         guard !todos.isEmpty else { showPlanner = true; message = "Add at least one task before starting."; return }
         guard todos.allSatisfy(\.validLink), JournalState.isValidTarget(hours: journal.hours) else {
             message = "Use a work target between 0 and 24 hours, and full web links (https://…) for tasks."; return
@@ -129,15 +129,17 @@ import LockInCore
         let log = WorkLog(todos: todos, targetSeconds: journal.hours * 3600, now: Date())
         guard commitJournal({ $0.sessions.append(log) }) else { return }
         state.session = FocusSession(profile: profile, locked: lockSession)
-        showPlanner = false; runHook("start"); persist(); tick()
+        showPlanner = false; runHook(.start); persist(); tick()
     }
+    /// The Focus menu command and the global shortcut: plan or start a session, or stop the running one.
+    func toggleFocus() { active ? stop() : start() }
     func stop() {
         guard !locked, workLog != nil else { return }
         // Early exits must leave an explanation just like any other unearned interruption.
         showPause = true
     }
     func pause(reason: String) {
-        if changePhase(hook: "pause", { $0.pause(reason: reason, at: $1) }) { showPause = false }
+        if changePhase(hook: .pause, { $0.pause(reason: reason, at: $1) }) { showPause = false }
     }
     /// Sleep pauses work or a break; time asleep is recorded as a pause either way.
     func pauseForSleep() {
@@ -153,23 +155,23 @@ import LockInCore
         sleepPause = nil
         guard let log = workLog, log.intervals.last?.id == sleep.id else { return }
         if sleep.phase == .break, log.breakBalance(at: Date()) >= 1 {
-            changePhase(hook: "break") { log, now in log.transition(to: .break, at: now); return true }
+            changePhase(hook: .break) { log, now in log.transition(to: .break, at: now); return true }
         } else {
             resume()
         }
     }
     func takeBreak() {
         guard workLog != nil else { return }
-        if !changePhase(hook: "break", { $0.takeBreak(at: $1) }), workLog != nil {
+        if !changePhase(hook: .break, { $0.takeBreak(at: $1) }), workLog != nil {
             message = "Work earns five minutes of break per hour. No break time is available yet."
         }
     }
     func resume() {
         guard let log = workLog, log.phase?.isFocused == false else { return }
-        changePhase(hook: "resume") { log, now in log.transition(to: log.focusPhase(at: now), at: now); return true }
+        changePhase(hook: .resume) { log, now in log.transition(to: log.focusPhase(at: now), at: now); return true }
     }
     /// Brings the open session up to date, applies a phase change and, if it took effect, runs the hook and saves.
-    @discardableResult private func changePhase(hook: String, _ change: (inout WorkLog, Date) -> Bool) -> Bool {
+    @discardableResult private func changePhase(hook: HookEvent, _ change: (inout WorkLog, Date) -> Bool) -> Bool {
         guard let index = activeLogIndex else { return false }
         let now = Date()
         journal.sessions[index].advance(at: now)
@@ -252,7 +254,7 @@ import LockInCore
         conclude(journal.sessions[index], presentReview: !showEndSession)
     }
     private func conclude(_ log: WorkLog, presentReview: Bool = true) {
-        runHook("stop"); state.session = nil; blocker.deactivate()
+        runHook(.stop); state.session = nil; blocker.deactivate()
         journal.pendingReviewID = log.id; showReview = presentReview; showPause = false; showEndSession = false; page = .focus
         persist(); NSApp?.showMainWindow()
     }
@@ -266,9 +268,9 @@ import LockInCore
             if phase != previous {
                 // advance() only ends a spent break or moves work into overtime.
                 if phase == .overtime && previous == .work {
-                    runHook("overtime"); NSApp?.showMainWindow()
+                    runHook(.overtime); NSApp?.showMainWindow()
                 } else {
-                    runHook("resume")
+                    runHook(.resume)
                 }
                 persist()
             } else if now.timeIntervalSince(lastCheckpoint) >= 10 {
@@ -322,8 +324,7 @@ import LockInCore
     func completeReview() {
         guard let index = reviewIndex, journal.sessions[index].todos.allSatisfy(\.validLink) else { message = "Check the task links before saving."; return }
         let saved = commitJournal { journal in
-            journal.draft = journal.sessions[index].rolledTodos
-            if journal.draft.isEmpty { journal.draft = [Todo()] }
+            journal.setPlan(journal.sessions[index].rolledTodos)
             journal.sessions[index].reviewed = true
             journal.pendingReviewID = nil
         }
@@ -346,12 +347,12 @@ import LockInCore
         for _ in 0..<20_000 { data = Data(SHA256.hash(data: data)) }
         return data.base64EncodedString()
     }
-    func runHook(_ event: String) {
-        guard let session = state.session, let script = session.profile.hooks[event], !script.isBlank else { return }
+    func runHook(_ event: HookEvent) {
+        guard let session = state.session, let script = session.profile.hooks[event.rawValue], !script.isBlank else { return }
         let process = Process(); process.executableURL = URL(fileURLWithPath: "/bin/zsh"); process.arguments = ["-c", script]
         process.environment = ProcessInfo.processInfo.environment.merging([
             // LOCKIN_MODE is kept for existing hook scripts; every session is now a timed work target.
-            "LOCKIN_EVENT": event, "LOCKIN_PROFILE": session.profile.name, "LOCKIN_MODE": "Timer"
+            "LOCKIN_EVENT": event.rawValue, "LOCKIN_PROFILE": session.profile.name, "LOCKIN_MODE": "Timer"
         ]) { _, new in new }
         process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
         do { try process.run() } catch { message = "Workflow failed to start: \(error.localizedDescription)" }

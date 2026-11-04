@@ -172,12 +172,12 @@ public struct WorkLog: Identifiable, Equatable, Sendable {
         guard endedAt == nil, targetReached(at: now) else { return false }
         finish(at: now, natural: true); return true
     }
-    /// Ends an open session before its target, e.g. to start a new day. Requires a nonblank explanation.
     /// Records an event on an open session. Requires nonblank text, which is saved trimmed.
     public mutating func addEvent(_ text: String, at now: Date) -> Bool {
         guard !text.isBlank, endedAt == nil else { return false }
         events.append(SessionEvent(at: now, text: text.trimmed)); return true
     }
+    /// Ends an open session before its target, e.g. to start a new day. Requires a nonblank explanation.
     public mutating func endEarly(reason: String, at now: Date) -> Bool {
         guard !reason.isBlank, endedAt == nil else { return false }
         endReason = reason.trimmed
@@ -220,6 +220,10 @@ public struct JournalState: Equatable {
     /// The session still running, if any. Only the last unfinished session counts.
     public var openSessionIndex: Int? { sessions.lastIndex { $0.endedAt == nil } }
     public var openSession: WorkLog? { openSessionIndex.map { sessions[$0] } }
+    /// The plan's tasks without the planner's blank row.
+    public var plannedTasks: [Todo] { draft.filter(\.hasTitle) }
+    /// Replaces the plan. An empty plan keeps one blank row ready for typing in the planner.
+    public mutating func setPlan(_ todos: [Todo]) { draft = todos.isEmpty ? [Todo()] : todos }
     /// A work target is more than zero and at most a day.
     public static func isValidTarget(hours: Double) -> Bool { hours.isFinite && hours > 0 && hours <= 24 }
 }
