@@ -219,4 +219,37 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertTrue(store.setTaskCompleted(id: task.id, false))
         XCTAssertEqual(store.workLog?.todos.first?.completed, false)
     }
+    @MainActor func testWakingResumesWhatSleepPaused() throws {
+        let store = makeStore()
+        store.journal.draft = [Todo(title: "Task")]
+        store.start()
+        store.pauseForSleep()
+        XCTAssertEqual(store.workLog?.intervals.last?.reason, "Mac went to sleep")
+        store.resumeAfterWake()
+        XCTAssertEqual(store.workLog?.phase, .work)
+
+        // A break interrupted by sleep is a break again on waking, while break time is left.
+        let index = store.journal.sessions.count - 1
+        store.journal.sessions[index].intervals[store.journal.sessions[index].intervals.count - 1].start = Date().addingTimeInterval(-3600)
+        store.takeBreak()
+        store.pauseForSleep()
+        store.resumeAfterWake()
+        XCTAssertEqual(store.workLog?.phase, .break)
+    }
+    @MainActor func testWakingLeavesOtherPausesAlone() throws {
+        let store = makeStore()
+        store.journal.draft = [Todo(title: "Task")]
+        store.start()
+        store.pause(reason: "Lunch")
+        store.pauseForSleep()
+        store.resumeAfterWake()
+        XCTAssertEqual(store.workLog?.phase, .pause, "your own pause isn't resumed")
+
+        store.resume()
+        store.pauseForSleep()
+        store.resume()
+        store.pause(reason: "Changed my mind")
+        store.resumeAfterWake()
+        XCTAssertEqual(store.workLog?.intervals.last?.reason, "Changed my mind", "a pause made after sleep is left alone")
+    }
 }

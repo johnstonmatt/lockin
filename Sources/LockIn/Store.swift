@@ -28,6 +28,9 @@ import LockInCore
     let blocker = Blocker()
     private var timer: Timer?
     private var sleepObserver: NSObjectProtocol?
+    private var wakeObserver: NSObjectProtocol?
+    /// The pause the Mac's sleep started and the phase it interrupted, so waking can pick up where sleep left off.
+    private var sleepPause: (id: UUID, phase: WorkPhase)?
     private var remoteControl: RemoteControl?
     private var storageAvailable = true
     private let file: URL
@@ -56,7 +59,11 @@ import LockInCore
         if state.profiles.isEmpty { state.profiles = [Profile()] }
         if !state.profiles.contains(where: { $0.id == state.selectedProfileID }) { state.selectedProfileID = state.profiles[0].id }
         sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.pause(reason: "Mac went to sleep") }
+            Task { @MainActor in self?.pauseForSleep() }
+        }
+        // didWake is a full wake (someone at the Mac), not the brief dark wakes for maintenance.
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.resumeAfterWake() }
         }
         loadJournal()
         tick()
@@ -136,6 +143,25 @@ import LockInCore
     }
     func pause(reason: String) {
         if changePhase(hook: "pause", { $0.pause(reason: reason, at: $1) }) { showPause = false }
+    }
+    /// Sleep pauses work or a break; time asleep is recorded as a pause either way.
+    func pauseForSleep() {
+        guard let phase = workLog?.phase, phase != .pause else { return }
+        pause(reason: "Mac went to sleep")
+        if let interval = workLog?.intervals.last, interval.kind == .pause { sleepPause = (interval.id, phase) }
+    }
+    /// Waking picks up where sleep left off, but only if sleep's pause is still the current interval:
+    /// a pause you started, or anything you resumed or ended while the Mac slept, is left alone.
+    /// A break goes back to being a break if there's break time left; otherwise work resumes.
+    func resumeAfterWake() {
+        guard let sleep = sleepPause else { return }
+        sleepPause = nil
+        guard let log = workLog, log.intervals.last?.id == sleep.id else { return }
+        if sleep.phase == .break, log.breakBalance(at: Date()) >= 1 {
+            changePhase(hook: "break") { log, now in log.transition(to: .break, at: now); return true }
+        } else {
+            resume()
+        }
     }
     func takeBreak() {
         guard workLog != nil else { return }
