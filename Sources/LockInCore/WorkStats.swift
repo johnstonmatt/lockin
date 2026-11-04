@@ -71,6 +71,10 @@ public struct WorkStats: Sendable {
     public func target(in range: DateInterval) -> Double {
         sessions.filter { $0.startedAt >= range.start && $0.startedAt < range.end }.reduce(0) { $0 + $1.targetSeconds }
     }
+    /// Events recorded within `range`, in time order.
+    public func events(in range: DateInterval) -> [SessionEvent] {
+        sessions.flatMap(\.events).filter { $0.at >= range.start && $0.at < range.end }.sorted { $0.at < $1.at }
+    }
     public func sessions(in range: DateInterval) -> [WorkLog] {
         sessions.filter { $0.startedAt < range.end && ($0.endedAt ?? now) > range.start }
     }

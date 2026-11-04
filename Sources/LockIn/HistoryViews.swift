@@ -89,7 +89,7 @@ struct HistoryView: View {
                             Spacer()
                             if pinnedDay != nil { Button("Back to today") { pinnedDay = nil }.buttonStyle(.pointer(.link)).font(.caption) }
                         }
-                        DayTimeline(intervals: intervals, now: store.now)
+                        DayTimeline(intervals: intervals, events: stats.events(in: dayRange), now: store.now)
                     }
                 }
                 Card {
@@ -323,8 +323,13 @@ private struct HoursChart: View {
 
 struct DayTimeline: View {
     let intervals: [WorkInterval]
+    /// Drawn as ticks over the bar, and listed with the pauses below it.
+    var events: [SessionEvent] = []
     let now: Date
     @State private var hovered: WorkInterval.ID?
+    @State private var hoveredEvent: SessionEvent.ID?
+    /// How close, in points, the pointer must be to a tick to show its event rather than the interval under it.
+    private static let tickReach: CGFloat = 5
     var body: some View {
         let totals = intervals.reduce(into: PhaseTotals()) { $0.seconds[$1.kind, default: 0] += $1.seconds(at: now) }
         VStack(alignment: .leading, spacing: 14) {
@@ -342,18 +347,30 @@ struct DayTimeline: View {
                 }
             }.font(.caption)
             let pauses = intervals.filter { $0.kind == .pause }
-            if !pauses.isEmpty {
+            if !pauses.isEmpty || !events.isEmpty {
+                // Pauses and events together, in time order: both say what happened when.
                 VStack(alignment: .leading, spacing: 6) {
-                    ForEach(pauses) { pause in
+                    ForEach(notes, id: \.id) { note in
                         HStack(alignment: .firstTextBaseline, spacing: 10) {
-                            Text(pause.start, format: .dateTime.hour().minute()).monospacedDigit().foregroundStyle(.secondary).frame(width: 64, alignment: .leading)
-                            Text(hours(pause.seconds(at: now))).monospacedDigit().foregroundStyle(.secondary).frame(width: 52, alignment: .leading)
-                            Text(pause.reason ?? "No reason recorded")
+                            Text(note.at, format: .dateTime.hour().minute()).monospacedDigit().foregroundStyle(.secondary).frame(width: 64, alignment: .leading)
+                            Group {
+                                if let duration = note.duration { Text(hours(duration)) }
+                                else { Image(systemName: "flag.fill").foregroundStyle(Self.eventColor).accessibilityLabel("Event") }
+                            }.monospacedDigit().foregroundStyle(.secondary).frame(width: 52, alignment: .leading)
+                            Text(note.text)
                         }
                     }
                 }.font(.caption)
             }
         }
+    }
+    static let eventColor = Color.primary.opacity(0.75)
+    /// A pause (with its length) or an event, for the list under the timeline.
+    private struct Note { let id: UUID; let at: Date; let duration: Double?; let text: String }
+    private var notes: [Note] {
+        let pauses = intervals.filter { $0.kind == .pause }
+            .map { Note(id: $0.id, at: $0.start, duration: $0.seconds(at: now), text: $0.reason ?? "No reason recorded") }
+        return (pauses + events.map { Note(id: $0.id, at: $0.at, duration: nil, text: $0.text) }).sorted { $0.at < $1.at }
     }
     private var domain: ClosedRange<Date> {
         let calendar = Calendar.current
@@ -383,6 +400,16 @@ struct DayTimeline: View {
                         .accessibilityLabel(item.backfilled == true ? "\(item.kind.label), backfilled" : item.kind.label)
                         .accessibilityValue("\(item.start.formatted(date: .omitted, time: .shortened)) to \(end.formatted(date: .omitted, time: .shortened)), \(hours(item.seconds(at: now)))")
                 }
+                ForEach(events) { event in
+                    RuleMark(x: .value("Event", event.at))
+                        .foregroundStyle(Self.eventColor)
+                        .lineStyle(StrokeStyle(lineWidth: hoveredEvent == event.id ? 2.5 : 1.5))
+                        .annotation(position: .top, spacing: 0) {
+                            Circle().fill(Self.eventColor).frame(width: hoveredEvent == event.id ? 8 : 6)
+                        }
+                        .accessibilityLabel("Event")
+                        .accessibilityValue("\(event.at.formatted(date: .omitted, time: .shortened)), \(event.text)")
+                }
             }
             .chartXScale(domain: domain)
             .chartYAxis(.hidden)
@@ -394,10 +421,23 @@ struct DayTimeline: View {
             }
             .chartOverlay { proxy in
                 HoverOverlay(proxy: proxy, onHover: { point in
+                    // A tick is only a couple of points wide, so the nearest one within reach wins over the bar.
+                    hoveredEvent = point.flatMap { point in
+                        events.compactMap { event in proxy.position(forX: event.at).map { (event.id, abs($0 - point.x)) } }
+                            .filter { $0.1 <= Self.tickReach }.min { $0.1 < $1.1 }?.0
+                    }
                     let time = point.flatMap { proxy.value(atX: $0.x, as: Date.self) }
-                    hovered = time.flatMap { t in intervals.first { $0.start <= t && t < ($0.end ?? now) } }?.id
+                    hovered = hoveredEvent != nil ? nil : time.flatMap { t in intervals.first { $0.start <= t && t < ($0.end ?? now) } }?.id
                 }) { _ in
-                    if let item = intervals.first(where: { $0.id == hovered }) {
+                    if let event = events.first(where: { $0.id == hoveredEvent }) {
+                        Tooltip {
+                            HStack(spacing: 6) {
+                                Image(systemName: "flag.fill").foregroundStyle(Self.eventColor)
+                                Text(event.at.formatted(date: .omitted, time: .shortened)).fontWeight(.semibold)
+                            }
+                            Text(event.text).frame(maxWidth: 260, alignment: .leading)
+                        }
+                    } else if let item = intervals.first(where: { $0.id == hovered }) {
                         Tooltip {
                             HStack(spacing: 6) {
                                 RoundedRectangle(cornerRadius: 2).fill(item.kind.color).frame(width: 9, height: 9)

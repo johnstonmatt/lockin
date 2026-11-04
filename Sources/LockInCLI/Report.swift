@@ -58,6 +58,11 @@ struct Snapshot {
                 lines.append("Lock In isn't running, so time stopped counting at \(time(asOf)). Run lockin to reopen it.")
             }
             lines += ["", "Tasks"] + taskLines
+            if !log.events.isEmpty {
+                let recent = log.events.suffix(Self.recentEvents)
+                let heading = log.events.count > recent.count ? "Events (latest \(recent.count) of \(log.events.count))" : "Events"
+                lines += ["", heading] + recent.map { "  \(time($0.at))  \($0.text)" }
+            }
         } else if reviewPending {
             lines.append("No session running. Your last session is waiting for review in Lock In.")
         } else {
@@ -68,6 +73,9 @@ struct Snapshot {
         }
         return lines.joined(separator: "\n")
     }
+
+    /// Enough to see what happened lately; the session file has them all.
+    static let recentEvents = 5
 
     var tasksText: String {
         if session == nil && reviewPending { return "Your last session is waiting for review in Lock In." }
@@ -111,6 +119,7 @@ struct Snapshot {
 
     struct Status: Encodable {
         struct Task: Encodable { var title: String; var link: String?; var completed: Bool }
+        struct Event: Encodable { var at: Date; var text: String }
         var appRunning: Bool
         var reviewPending: Bool
         var phase: String?
@@ -124,6 +133,8 @@ struct Snapshot {
         var breakBalanceSeconds: Double?
         /// The running session's tasks, or the next session's plan when none is running.
         var tasks: [Task]
+        /// All of the running session's events, oldest first. Empty when no session is running.
+        var events: [Event]
     }
 
     var status: Status {
@@ -136,7 +147,8 @@ struct Snapshot {
             targetSeconds: log?.targetSeconds, remainingSeconds: log?.remaining(at: asOf),
             workedSeconds: log?.worked(at: asOf), overtimeSeconds: log?.seconds(.overtime, at: asOf),
             breakBalanceSeconds: log?.breakBalance(at: asOf),
-            tasks: tasks.map { Status.Task(title: $0.title, link: $0.linkURL?.absoluteString, completed: $0.completed) })
+            tasks: tasks.map { Status.Task(title: $0.title, link: $0.linkURL?.absoluteString, completed: $0.completed) },
+            events: (log?.events ?? []).map { Status.Event(at: $0.at, text: $0.text) })
     }
 
     var statusJSON: String {

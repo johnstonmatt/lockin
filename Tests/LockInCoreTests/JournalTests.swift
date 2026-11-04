@@ -110,14 +110,6 @@ final class JournalTests: XCTestCase {
         _ = log.endEarly(reason: "Done", at: start.addingTimeInterval(120))
         XCTAssertFalse(log.addEvent("Too late", at: start.addingTimeInterval(180)))
     }
-    func testRecoveryRoundTrip() throws {
-        var state = JournalState(); var log = makeLog()
-        _ = log.pause(reason: "Meeting", at: start.addingTimeInterval(60))
-        state.sessions = [log]
-        let restored = try JSONDecoder().decode(JournalState.self, from: JSONEncoder().encode(state))
-        XCTAssertEqual(restored.sessions[0].phase, .pause)
-        XCTAssertEqual(restored.sessions[0].intervals.last?.reason, "Meeting")
-    }
     func testLinksAreLabelledByService() {
         func label(_ link: String) -> String? { var todo = Todo(title: "t"); todo.link = link; return todo.linkLabel }
         XCTAssertEqual(label("https://linear.app/acme/issue/ABC-1"), "Linear")
@@ -139,18 +131,5 @@ final class JournalTests: XCTestCase {
         XCTAssertFalse(Todo.isValidLink("ftp://example.com/file"))
         XCTAssertTrue(Todo.isValidLink("  https://example.com  "), "whitespace is trimmed on save, so it doesn't invalidate a link")
         XCTAssertTrue(Todo(title: "t").with(title: "t", link: " https://example.com ").isValid)
-    }
-    /// Journals saved before links were generalized store the link under "linearURL"; they must load, and keep that key.
-    func testTaskLinkKeepsItsSavedKey() throws {
-        let id = UUID()
-        let json = #"{"id":"\#(id)","title":"Old task","linearURL":"https://linear.app/acme/issue/ABC-1","completed":false,"rollForward":true}"#
-        let todo = try JSONDecoder().decode(Todo.self, from: Data(json.utf8))
-        XCTAssertEqual(todo.link, "https://linear.app/acme/issue/ABC-1")
-        XCTAssertEqual(todo.linkService, .linear)
-        XCTAssertTrue(todo.rollForward)
-        let encoded = String(decoding: try JSONEncoder().encode(todo), as: UTF8.self)
-        XCTAssertTrue(encoded.contains("\"linearURL\""))
-        let file = SessionFile(WorkLog(todos: [todo], targetSeconds: 60, now: start), checkpoint: nil)
-        XCTAssertEqual(file.tasks.first?.link, "https://linear.app/acme/issue/ABC-1", "session files call it link")
     }
 }

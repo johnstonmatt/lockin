@@ -6,7 +6,7 @@ extension String {
     public var isBlank: Bool { trimmed.isEmpty }
 }
 
-public struct Todo: Identifiable, Codable, Equatable, Sendable {
+public struct Todo: Identifiable, Equatable, Sendable {
     public var id = UUID()
     public var title = ""
     /// Optional web link for the task: a Linear issue, GitHub issue or PR, Notion page, or any other URL.
@@ -14,8 +14,6 @@ public struct Todo: Identifiable, Codable, Equatable, Sendable {
     public var completed = false
     public var rollForward = false
     public var sourceTodoID: UUID?
-    /// `link` keeps the "linearURL" key from when only Linear links were allowed, so existing journals load unchanged.
-    private enum CodingKeys: String, CodingKey { case id, title, link = "linearURL", completed, rollForward, sourceTodoID }
     public init(title: String = "") { self.title = title }
     public static let linkRequirement = "Use a full web link, starting with https://"
     /// Blank, or an http(s) URL with a host. Surrounding whitespace is ignored, as it is trimmed on save.
@@ -106,15 +104,14 @@ public enum WorkPhase: String, Codable, CaseIterable, Sendable {
     /// Work and overtime: time that's focused, blocked and earns break credit.
     public var isFocused: Bool { self == .work || self == .overtime }
 }
-public struct WorkInterval: Identifiable, Codable, Equatable, Sendable {
+public struct WorkInterval: Identifiable, Equatable, Sendable {
     public var id = UUID()
     public var kind: WorkPhase
     public var start: Date
     public var end: Date?
     public var reason: String?
-    /// Work added afterwards with `lockin backfill` rather than timed live. Nil (not false) on timed intervals,
-    /// so journals written before backfill existed decode unchanged.
-    public var backfilled: Bool?
+    /// Work added afterwards with `lockin backfill` rather than timed live.
+    public var backfilled = false
     public func seconds(at now: Date) -> Double { max(0, (end ?? now).timeIntervalSince(start)) }
 }
 /// Something that happened during a session, in your words: "Deployed to staging", "Interrupted by a call".
@@ -124,7 +121,7 @@ public struct SessionEvent: Identifiable, Equatable, Sendable {
     public var text: String
     public init(at: Date, text: String) { self.at = at; self.text = text }
 }
-public struct WorkLog: Identifiable, Codable, Equatable, Sendable {
+public struct WorkLog: Identifiable, Equatable, Sendable {
     public var id = UUID()
     public var startedAt: Date
     public var endedAt: Date?
@@ -137,10 +134,6 @@ public struct WorkLog: Identifiable, Codable, Equatable, Sendable {
     public var reviewed = false
     /// Notes recorded during the session with `lockin event add`, in the order they were added.
     public var events: [SessionEvent] = []
-    /// The pre-1.0 journal's keys, for migrating it. Events came later, so they're not among them.
-    private enum CodingKeys: String, CodingKey {
-        case id, startedAt, endedAt, targetSeconds, todos, intervals, finishedNaturally, endReason, reviewed
-    }
     public var phase: WorkPhase? { endedAt == nil ? intervals.last?.kind : nil }
     public init(todos: [Todo], targetSeconds: Double, now: Date) {
         self.todos = todos; self.targetSeconds = targetSeconds; startedAt = now
@@ -214,7 +207,7 @@ public struct WorkLog: Identifiable, Codable, Equatable, Sendable {
         }
     }
 }
-public struct JournalState: Codable, Equatable {
+public struct JournalState: Equatable {
     public var draft: [Todo] = [Todo()]
     public var hours = 2.0
     public var sessions: [WorkLog] = []

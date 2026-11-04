@@ -2,14 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/johnstonmatt/lockin/main/Schemas/session-v1.schema.json",
   "title": "Lock In session",
-  "description": "One work session, stored as ~/.lockin/sessions/<id>.json. These files are the record of your work: History, the day review and `lockin history` are built from them. Lock In rewrites a session's file when the session changes, and the open session's file on every checkpoint. A file that doesn't match this schema is skipped and never overwritten.",
+  "description": "One work session, stored in ~/.lockin/sessions and named after when it started, in local time to the minute, e.g. 2026-11-04T09-00.json (a second session started the same minute is 2026-11-04T09-00.2.json). These files are the record of your work: History, the day review and `lockin history` are built from them. Lock In rewrites a session's file when the session changes, and the open session's file on every checkpoint. A file that doesn't match this schema is skipped and never overwritten.",
   "type": "object",
   "required": ["schema_version", "id", "started_at", "target_seconds", "finished_naturally", "reviewed", "tasks", "intervals", "events"],
   "additionalProperties": false,
   "properties": {
     "$schema": { "type": "string", "description": "This schema's URL, for editors that validate JSON." },
     "schema_version": { "const": 1 },
-    "id": { "$ref": "#/$defs/uuid", "description": "The session's identity. The file is named after it." },
+    "id": { "$ref": "#/$defs/uuid", "description": "The session's identity. Lock In finds sessions by this, not by file name." },
     "started_at": { "$ref": "#/$defs/timestamp" },
     "ended_at": { "$ref": "#/$defs/timestamp", "description": "Absent while the session is open. At most one session is open." },
     "checkpoint_at": {

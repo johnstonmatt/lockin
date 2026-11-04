@@ -117,9 +117,4 @@ final class BackfillTests: XCTestCase {
         XCTAssertTrue(created.undoBackfill(now: at(130)))
         XCTAssertEqual(created.sessions.count, 1)
     }
-
-    func testIntervalsWithoutTheFlagStillDecode() throws {
-        let json = #"{"id":"\#(UUID())","kind":"work","start":0,"end":60}"#
-        XCTAssertNil(try JSONDecoder().decode(WorkInterval.self, from: Data(json.utf8)).backfilled)
-    }
 }

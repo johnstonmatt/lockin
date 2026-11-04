@@ -158,7 +158,7 @@ public struct IntervalRecord: Codable, Equatable {
     /// Absent on the interval still running.
     public var endedAt: Date?
     public var reason: String?
-    /// Work added afterwards with `lockin backfill`.
+    /// Work added afterwards with `lockin backfill`. Left out, rather than false, on timed intervals.
     public var backfilled: Bool?
 
     enum CodingKeys: String, CodingKey {
@@ -167,11 +167,11 @@ public struct IntervalRecord: Codable, Equatable {
 
     init(_ interval: WorkInterval) {
         id = interval.id; kind = interval.kind; startedAt = interval.start; endedAt = interval.end
-        reason = interval.reason; backfilled = interval.backfilled
+        reason = interval.reason; backfilled = interval.backfilled ? true : nil
     }
 
     var interval: WorkInterval {
-        WorkInterval(id: id, kind: kind, start: startedAt, end: endedAt, reason: reason, backfilled: backfilled)
+        WorkInterval(id: id, kind: kind, start: startedAt, end: endedAt, reason: reason, backfilled: backfilled ?? false)
     }
 }
 
