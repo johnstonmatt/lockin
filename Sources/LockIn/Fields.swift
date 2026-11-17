@@ -49,6 +49,15 @@ extension TextFieldStyle where Self == LockInFieldStyle {
 }
 
 extension View {
+    /// Submit a multiline input with Return; modified Return (including Shift-Return) keeps editing.
+    func submitsOnReturn(_ submit: @escaping () -> Void) -> some View {
+        onKeyPress(.return, phases: .down) { press in
+            guard press.modifiers.isEmpty else { return .ignored }
+            submit()
+            return .handled
+        }
+    }
+
     /// The multi-line counterpart of `LockInFieldStyle`, for TextEditor.
     func lockInEditor(invalid: Bool = false) -> some View {
         FieldChrome(icon: nil, invalid: invalid, multiline: true) { focus in
