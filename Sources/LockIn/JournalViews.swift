@@ -56,7 +56,8 @@ struct PauseView: View {
             Label("Why are you pausing?", systemImage: "pause.circle").font(.title2)
             Text("Pauses don’t spend earned break time. Your reason and the time away will be saved in the session journal.").foregroundStyle(.secondary)
             TextEditor(text: $reason).frame(height: 100).lockInEditor()
-            HStack { Button("Cancel") { store.showPause = false }; Spacer(); Button("Pause session") { store.pause(reason: reason) }.buttonStyle(.pointer(.borderedProminent)).disabled(reason.isBlank) }
+                .submitsOnReturn { if !reason.isBlank { store.pause(reason: reason) } }
+            HStack { Button("Cancel") { store.showPause = false }.keyboardShortcut(.cancelAction); Spacer(); Button("Pause session") { store.pause(reason: reason) }.buttonStyle(.pointer(.borderedProminent)).keyboardShortcut(.defaultAction).disabled(reason.isBlank) }
         }.padding(28).frame(width: 480).clearsFieldFocusOnClick()
     }
 }
@@ -71,10 +72,12 @@ struct EndSessionView: View {
             }
             Text("Reason (saved in the session journal)").font(.caption).foregroundStyle(.secondary)
             TextEditor(text: $reason).frame(height: 80).lockInEditor()
+                .submitsOnReturn { if !reason.isBlank { store.endSession(reason: reason) } }
             HStack {
-                Button("Cancel") { store.showEndSession = false }
+                Button("Cancel") { store.showEndSession = false }.keyboardShortcut(.cancelAction)
                 Spacer()
                 Button("End session & review") { store.endSession(reason: reason) }.buttonStyle(.pointer(.borderedProminent))
+                    .keyboardShortcut(.defaultAction)
                     .disabled(reason.isBlank)
             }
         }.padding(28).frame(width: 480).clearsFieldFocusOnClick()
