@@ -4,16 +4,25 @@ import AppKit
 @main struct LockInApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @StateObject private var store = Store()
+    @StateObject private var updater = AppUpdater()
+    @Environment(\.openWindow) private var openWindow
     @AppStorage("showMenuBarItem") private var showMenuBarItem = true
     @AppStorage("showMenuBarCountdown") private var showMenuBarCountdown = false
     var body: some Scene {
         Window("Lock In", id: MainWindow.id) {
-            MainView().environmentObject(store)
+            MainView().environmentObject(store).environmentObject(updater)
                 .onAppear { delegate.connect(store) }
                 .onOpenURL { store.handleURL($0) }
         }
         .defaultSize(width: 900, height: 660)
         .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") {
+                    store.page = .settings
+                    openWindow.main()
+                    Task { await updater.check() }
+                }.disabled(updater.busy)
+            }
             CommandGroup(replacing: .newItem) {}
             CommandMenu("Focus") {
                 Button(store.active ? "Stop focusing" : "Start focusing") { store.toggleFocus() }.keyboardShortcut("f", modifiers: [.command, .shift]).disabled(store.locked)
