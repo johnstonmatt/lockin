@@ -4,6 +4,7 @@ import LockInCore
 
 struct PreferencesView: View {
     @EnvironmentObject var store: Store
+    @EnvironmentObject var updater: AppUpdater
     @State private var password = ""
     @State private var event = HookEvent.start
     @AppStorage("showMenuBarItem") private var showMenuBarItem = true
@@ -21,6 +22,25 @@ struct PreferencesView: View {
         }
     }
     var body: some View {
+        Card {
+            Label("Updates", systemImage: "arrow.down.circle").font(.headline)
+            if let version = updater.currentVersion {
+                Text("Version \(version)").font(.caption).foregroundStyle(.secondary)
+            }
+            HStack {
+                Button("Check for Updates…") { Task { await updater.check() } }.disabled(updater.busy)
+                if updater.busy { ProgressView().controlSize(.small) }
+                if updater.availableVersion != nil {
+                    Button("Install update") { Task { await updater.install(locked: store.locked) } }
+                        .disabled(updater.busy || store.locked || !updater.canInstall)
+                }
+            }
+            Text(updater.status).font(.callout).textSelection(.enabled)
+            if updater.availableVersion != nil {
+                Text(!updater.canInstall ? "Install a packaged release to update from the app." : store.locked ? "Hardcore Mode blocks installation until this session ends." : "Installing restarts Lock In. Active sessions pause and resume automatically; a pause you started stays paused.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
         Card {
             Label("Your rhythm", systemImage: "timer").font(.headline)
             Text("Set your work target when planning each session. Every hour of work earns five minutes of break; pauses require a written reason and do not spend your balance.")

@@ -1,4 +1,5 @@
 import Foundation
+import LockInCore
 
 /// `lockin upgrade`: installs the latest GitHub release, using the install script that ships inside it.
 /// That's the same script `./install-app` runs, so an upgrade pauses and resumes a session exactly like a local install.
@@ -68,12 +69,7 @@ enum Upgrade {
 
     /// Dotted versions compared number by number: 0.10.0 is newer than 0.9.1.
     static func compare(_ a: String, _ b: String) -> ComparisonResult {
-        let x = a.split(separator: ".").map { Int($0) ?? 0 }, y = b.split(separator: ".").map { Int($0) ?? 0 }
-        for i in 0..<max(x.count, y.count) {
-            let l = i < x.count ? x[i] : 0, r = i < y.count ? y[i] : 0
-            if l != r { return l < r ? .orderedAscending : .orderedDescending }
-        }
-        return .orderedSame
+        ReleaseVersion.compare(a, b)
     }
 
     private static func release() throws -> Release {

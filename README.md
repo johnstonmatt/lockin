@@ -107,7 +107,9 @@ A task is written as `"title"`, `"link"` or `"title - link"`. A link is split fr
 
 Backfilled intervals are saved with `backfilled: true` and drawn lighter in the day timeline. Work after the point the target is now reached is relabelled as overtime. The reply shows the exact times used, with dates. `lockin backfill --undo` removes the last backfill and keeps anything recorded since.
 
-`lockin upgrade` fetches the latest release from GitHub and checks that it is signed and notarized. It then installs it with the `install.sh` that ships inside that release, the same script `./install-app` uses. If you're already on that version or a newer one, it does nothing.
+Use **Lock In → Check for Updates…** or **Settings → Updates → Check for Updates…** to check GitHub for a newer release. If one is available, choose **Install update** to download it and restart the app. Installation pauses and resumes an active session and is blocked during Hardcore Mode. Checking does not install anything. Packaged builds include the updater; development builds without a release version cannot check for updates.
+
+`lockin upgrade` fetches the latest release from GitHub and checks that it is signed and notarized. It then installs it with the `install.sh` that ships inside that release, the same script `./install-app` uses. The app’s **Install update** button runs this bundled command without requiring a CLI link or PATH setup. If you're already on that version or a newer one, it does nothing.
 
 `lockin event add <text>` records a note on the running session, with the time, in the session's `events`. Paused or on a break counts as running.
 
