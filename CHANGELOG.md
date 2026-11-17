@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.0](https://github.com/johnstonmatt/lockin/compare/v1.0.0...v1.1.0) (2026-11-17)
+
+
+### Features
+
+* add check for updates controls to the app ([8fd7e7e](https://github.com/johnstonmatt/lockin/commit/8fd7e7e101c11371d9b61865cb07381e01b49033))
+* add Return submission and Escape cancellation to session dialogs ([fc0189d](https://github.com/johnstonmatt/lockin/commit/fc0189d2ca6c4c154be81369c883b2b1ba69b984))
+
 ## [1.0.0](https://github.com/johnstonmatt/lockin/compare/v0.4.0...v1.0.0) (2026-11-04)
 
 
