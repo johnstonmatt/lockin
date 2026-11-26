@@ -16,9 +16,10 @@ public struct PullRequestReadiness: Codable, Equatable, Sendable {
     public var status: Status {
         if isDraft { return .draft }
         if checks == "FAILURE" || checks == "ERROR" { return .failing }
-        // CLEAN confirms GitHub's review/merge gates, including requirements beyond one approval.
+        // UNSTABLE is mergeable with non-passing checks; only required checks gate readiness.
+        let mergeable = mergeState == "CLEAN" || mergeState == "UNSTABLE"
         let reviewsSatisfied = reviewDecision == "APPROVED" || reviewDecision == nil
-        if mergeState == "CLEAN" && reviewsSatisfied && (checks == "SUCCESS" || checks == nil) { return .ready }
+        if mergeable && reviewsSatisfied && (checks == "SUCCESS" || checks == nil) { return .ready }
         if checks == "SUCCESS" { return .passing }
         return .pending
     }
