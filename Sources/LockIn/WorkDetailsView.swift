@@ -5,10 +5,11 @@ struct WorkDetailsView: View {
     @EnvironmentObject var store: Store
     let node: WorkNode
     let presentation: WorkPresentation
-    let sessionIDs: Set<String>
     let relevantImports: [WorkImport]
     @Binding var selection: String?
-    private var graph: WorkGraph { presentation.graph }
+    private var inSession: Bool { presentation.sessionIDs.contains(node.id) }
+    private var canInclude: Bool { store.workGraph.selectedAncestor(of: node.id, among: presentation.sessionIDs) == nil }
+    private var conflicts: [WorkEdge] { presentation.conflicts.filter { $0.from == node.id || $0.to == node.id } }
 
     var body: some View {
         ScrollView {
@@ -21,7 +22,7 @@ struct WorkDetailsView: View {
                         .buttonStyle(.pointer(.plain)).accessibilityLabel("Close details")
                 }
                 Text(node.title).font(.title3)
-                if node.kind == .local && sessionIDs.contains(node.id) {
+                if node.kind == .local && inSession {
                     LocalWorkEditor(node: node).id(node.id)
                 }
                 if let status = node.displayStatus {
@@ -31,7 +32,7 @@ struct WorkDetailsView: View {
                 if let url = URL(string: node.url), ["https", "http"].contains(url.scheme ?? "") {
                     Link("Open in \(node.kind == .linear ? "Linear" : node.kind == .pullRequest ? "GitHub" : "browser")", destination: url)
                 }
-                if sessionIDs.contains(node.id) {
+                if inSession {
                     Toggle("Done for this session", isOn: Binding(get: {
                         store.isSessionWorkDone(node.id)
                     }, set: { store.setSessionWorkDone(node.id, done: $0) }))
@@ -41,11 +42,11 @@ struct WorkDetailsView: View {
                 } else {
                     Text("Source-owned work · shown through this session’s selected entries.")
                         .font(.caption).foregroundStyle(.secondary)
-                    if store.workGraph.selectedAncestor(of: node.id, among: sessionIDs) == nil {
+                    if canInclude {
                         Button("Include in session") { store.selectWorkForSession(node) }
                     }
                 }
-                if node.context && node.kind == .linear && store.workGraph.selectedAncestor(of: node.id, among: sessionIDs) == nil {
+                if node.context && node.kind == .linear && canInclude {
                     Button("Import this issue’s tree") { store.importWork(node.url) }.disabled(store.workImporting)
                 }
                 Divider()
@@ -55,14 +56,14 @@ struct WorkDetailsView: View {
                 ForEach(upstream) { edge in
                     relationship(edge, otherID: edge.from)
                 }
-                ForEach((presentation.outgoing[node.id] ?? [])) { edge in
+                ForEach(presentation.outgoing[node.id] ?? []) { edge in
                     Text("Before \(presentation.nodes[edge.to]?.label ?? edge.to)")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                if !presentation.conflicts.filter({ $0.from == node.id || $0.to == node.id }).isEmpty {
+                if !conflicts.isEmpty {
                     Text("Conflicting source dependencies were excluded from sequencing. Review their source before relying on this order.")
                         .font(.caption).foregroundStyle(.orange)
-                    ForEach(presentation.conflicts.filter { $0.from == node.id || $0.to == node.id }) { edge in
+                    ForEach(conflicts) { edge in
                         Text("\(edge.source.label): \(edge.from) → \(edge.to)").font(.caption)
                     }
                 }
@@ -84,17 +85,12 @@ struct WorkDetailsView: View {
 
     private func relationship(_ edge: WorkEdge, otherID: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Button(presentation.nodes[otherID]?.label ?? otherID) { selection = otherID }
-                    .buttonStyle(.pointer(.link))
-                Spacer()
-
-            }
+            Button(presentation.nodes[otherID]?.label ?? otherID) { selection = otherID }
+                .buttonStyle(.pointer(.link))
             Text(edge.kind == .contains ? "Sub-issue relationship" : edge.kind == .implements ? "Linked PR · no implied order" : edge.source.label)
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
-
 }
 
 private struct LocalWorkEditor: View {

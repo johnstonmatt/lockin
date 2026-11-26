@@ -16,11 +16,16 @@ struct WorkView: View {
     @State private var fitRevision = 0
     @State private var presentation = WorkPresentation(graph: WorkGraph(), filter: .all, collapsed: [])
 
-    private var graph: WorkGraph { store.sessionGraph }
-    private var selected: WorkNode? { graph.nodes.first { $0.id == selection } }
-    private var sessionIDs: Set<String> { store.sessionWorkIDs }
+    /// Everything the presentation is derived from in the store, so one change rebuilds the layout once.
+    private struct Source: Equatable {
+        var graph: WorkGraph
+        var sessionIDs: Set<String>
+    }
+
+    private var source: Source { Source(graph: store.sessionGraph, sessionIDs: store.sessionWorkIDs) }
+    private var selected: WorkNode? { selection.flatMap { presentation.nodes[$0] } }
     private var relevantImports: [WorkImport] {
-        store.workGraph.imports.filter { !sessionIDs.isDisjoint(with: $0.nodeIDs) }
+        store.workGraph.imports.filter { !presentation.sessionIDs.isDisjoint(with: $0.nodeIDs) }
     }
 
     var body: some View {
@@ -30,18 +35,17 @@ struct WorkView: View {
             HStack(spacing: 0) {
                 if mode == .graph {
                     GraphViewport(contentSize: presentation.layout.size, fitRevision: fitRevision) {
-                        WorkGraphCanvas(presentation: presentation, sessionIDs: sessionIDs, collapsed: collapsed,
-                                        selection: $selection, toggleCollapsed: toggleCollapsed)
+                        WorkGraphCanvas(presentation: presentation, selection: $selection, toggleCollapsed: toggleCollapsed)
                     }
                 } else {
-                    WorkListView(presentation: presentation, sessionIDs: sessionIDs,
+                    WorkListView(presentation: presentation,
                                  completedIDs: Set(store.graphSessionTasks.filter(\.completed).map(\.workIdentity)),
-                                 collapsed: collapsed, selection: $selection, toggleCollapsed: toggleCollapsed,
+                                 selection: $selection, toggleCollapsed: toggleCollapsed,
                                  setDone: { store.setSessionWorkDone($0, done: $1) })
                 }
                 if let node = selected {
                     Divider()
-                    WorkDetailsView(node: node, presentation: presentation, sessionIDs: sessionIDs,
+                    WorkDetailsView(node: node, presentation: presentation,
                                     relevantImports: relevantImports, selection: $selection)
                         .frame(width: 280)
                         .background(Color(nsColor: .controlBackgroundColor))
@@ -54,23 +58,26 @@ struct WorkView: View {
         .sheet(isPresented: $showAdd) { AddGraphWorkView().environmentObject(store) }
         .sheet(isPresented: $showConnections) { WorkConnectionsView() }
         .onChange(of: store.workGraph.imports) { _, _ in fitRevision += 1 }
-        .onChange(of: graph, initial: true) { _, _ in updateLayout() }
-        .onChange(of: filter) { _, _ in updateLayout(); fitRevision += 1 }
-        .onChange(of: collapsed) { _, _ in updateLayout(); fitRevision += 1 }
+        .onChange(of: source, initial: true) { _, source in updateLayout(source) }
+        .onChange(of: filter) { _, _ in updateLayout(source); fitRevision += 1 }
+        .onChange(of: collapsed) { _, _ in updateLayout(source); fitRevision += 1 }
     }
 
-    private func updateLayout() {
+    private func updateLayout(_ source: Source) {
         let needsInitialFit = presentation.layout.frames.isEmpty
-        presentation = WorkPresentation(graph: graph, filter: filter, collapsed: collapsed)
+        presentation = WorkPresentation(graph: source.graph, sessionIDs: source.sessionIDs,
+                                        filter: filter, collapsed: collapsed)
         if needsInitialFit { fitRevision += 1 }
     }
+
+    private var contextCount: Int { presentation.graph.nodes.filter { presentation.isContext($0.id) }.count }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Work").font(.title2.weight(.semibold))
-                    Text("\(store.workLog == nil ? "Next session" : "This session") · \(sessionIDs.count) selected · \(graph.nodes.filter { !graph.descendants(of: sessionIDs).contains($0.id) }.count) in context")
+                    Text("\(store.workLog == nil ? "Next session" : "This session") · \(presentation.sessionIDs.count) selected · \(contextCount) in context")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()

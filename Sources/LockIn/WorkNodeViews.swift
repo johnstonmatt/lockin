@@ -13,34 +13,31 @@ struct WorkNodeCard: View {
     private var cornerRadius: CGFloat { node.kind == .pullRequest ? 6 : 14 }
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            Button(action: select) {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 7) {
-                        WorkSourceBadge(kind: node.kind)
-                        Text(node.label)
-                            .font(.system(size: 10, weight: .medium, design: node.kind == .pullRequest ? .monospaced : .default))
-                            .foregroundStyle(.secondary).lineLimit(1)
-                    }.padding(.trailing, 25)
-                    Text(node.title).font(.system(size: 13, weight: .medium)).lineLimit(2)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+        Button(action: select) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 7) {
+                    WorkSourceBadge(kind: node.kind)
+                    Text(node.label)
+                        .font(.system(size: 10, weight: .medium, design: node.kind == .pullRequest ? .monospaced : .default))
+                        .foregroundStyle(.secondary).lineLimit(1)
+                }.padding(.trailing, 25)
+                Text(node.title).font(.system(size: 13, weight: .medium)).lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Spacer(minLength: 0)
+                HStack(spacing: 5) {
+                    if let status = node.displayStatus {
+                        Circle().fill(color).frame(width: 5, height: 5)
+                        Text(status.rawValue).foregroundStyle(color).help(node.statusExplanation)
+                    }
+                    if !node.resolved && blockerCount > 0 { Text("· " + plural(blockerCount, "blocker")) }
                     Spacer(minLength: 0)
-                    HStack(spacing: 5) {
-                        if let status = node.displayStatus {
-                            Circle().fill(color).frame(width: 5, height: 5)
-                            Text(status.rawValue).foregroundStyle(color).help(node.statusExplanation)
-                        }
-                        if !node.resolved && blockerCount > 0 { Text("· \(blockerCount) blocker\(blockerCount == 1 ? "" : "s")") }
-                        Spacer(minLength: 0)
-                        if isContext { Text("Context").italic() }
-                    }.font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
-                    if let breadcrumb { Text("In \(breadcrumb)").font(.system(size: 9)).foregroundStyle(.tertiary) }
-                }
-                .padding(14).frame(width: WorkGraphLayout.cardSize.width, height: WorkGraphLayout.cardSize.height)
-                .contentShape(RoundedRectangle(cornerRadius: cornerRadius))
-            }.buttonStyle(.pointer(.plain))
-
-        }
+                    if isContext { Text("Context").italic() }
+                }.font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+                if let breadcrumb { Text("In \(breadcrumb)").font(.system(size: 9)).foregroundStyle(.tertiary) }
+            }
+            .padding(14).frame(width: WorkGraphLayout.cardSize.width, height: WorkGraphLayout.cardSize.height)
+            .contentShape(RoundedRectangle(cornerRadius: cornerRadius))
+        }.buttonStyle(.pointer(.plain))
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: cornerRadius))
         .overlay(RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(isSelected ? Color.accentColor : .primary.opacity(hovered ? 0.18 : 0.09)).allowsHitTesting(false))
         .overlay(alignment: .leading) {
@@ -54,7 +51,6 @@ struct WorkNodeCard: View {
         .onHover { hovered = $0 }
     }
 }
-
 
 extension WorkNode {
     var graphStatusColor: Color {
@@ -75,17 +71,15 @@ struct WorkRegionHeader: View {
     let isContext: Bool
     let isSelected: Bool
     let collapsed: Bool
-    let prCount: Int
-    let issueCount: Int
-    let unresolvedCount: Int
+    let summary: WorkPresentation.RegionSummary
     let select: () -> Void
     let toggle: () -> Void
     @State private var hovered = false
-    private var summary: String {
+    private var summaryText: String {
         var parts: [String] = []
-        if issueCount > 0 { parts.append("\(issueCount) sub-issue\(issueCount == 1 ? "" : "s")") }
-        if prCount > 0 { parts.append("\(prCount) PR\(prCount == 1 ? "" : "s")") }
-        parts.append("\(unresolvedCount) blocker\(unresolvedCount == 1 ? "" : "s")")
+        if summary.issueCount > 0 { parts.append(plural(summary.issueCount, "sub-issue")) }
+        if summary.prCount > 0 { parts.append(plural(summary.prCount, "PR")) }
+        parts.append(plural(summary.unresolvedCount, "blocker"))
         return parts.joined(separator: " · ")
     }
 
@@ -106,13 +100,12 @@ struct WorkRegionHeader: View {
                         if isContext { Text("Context").font(.system(size: 10)).foregroundStyle(.secondary) }
                     }
                     Text(node.title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                    Text(summary)
+                    Text(summaryText)
                         .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }.buttonStyle(.pointer(.plain))
-
         }
         .padding(16)
         .frame(width: width, height: WorkGraphLayout.regionHeaderHeight, alignment: .topLeading)
@@ -122,6 +115,8 @@ struct WorkRegionHeader: View {
     }
 }
 
+/// "1 PR", "2 PRs".
+func plural(_ count: Int, _ noun: String) -> String { "\(count) \(noun)\(count == 1 ? "" : "s")" }
 
 struct WorkSourceBadge: View {
     let kind: WorkNode.Kind
