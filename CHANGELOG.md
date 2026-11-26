@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.2.0](https://github.com/johnstonmatt/lockin/compare/v1.1.0...v1.2.0) (2026-11-26)
+
+
+### Features
+
+* **work:** add persistent source-owned graphs and provider imports ([1cd86d4](https://github.com/johnstonmatt/lockin/commit/1cd86d484fe227c9ec41eeb79557f9545788867f))
+* **work:** integrate focused session selections and unified entry form ([e62f26b](https://github.com/johnstonmatt/lockin/commit/e62f26b05c7a64e731c9078049f3da2a3026487e))
+* **work:** render dependency graphs and nested work lists ([895b048](https://github.com/johnstonmatt/lockin/commit/895b0480960035f3108929b10e9041354e7ac05f))
+
+
+### Refactoring
+
+* remove unused task form and link badge views ([4c464cb](https://github.com/johnstonmatt/lockin/commit/4c464cb7324b7f67833c14923c06e29ce1e3dc7a))
+* remove unused task link labels ([676d530](https://github.com/johnstonmatt/lockin/commit/676d530ab74a31d6d044e0ea5a063e97c469f35e))
+* **work:** compute graph reachability from adjacency maps ([b3b2c24](https://github.com/johnstonmatt/lockin/commit/b3b2c24a3c016c4222df5de1954a683ea9f02ea7))
+* **work:** derive session context and region summaries once per presentation ([8ded1c4](https://github.com/johnstonmatt/lockin/commit/8ded1c41e0875636d01e7605bf36a5e8955512b3))
+* **work:** match duplicate work with one predicate ([7362611](https://github.com/johnstonmatt/lockin/commit/736261153853b780a52c63d4e3975c782aabbef8))
+* **work:** remove task-level dependency sequencing ([9f81617](https://github.com/johnstonmatt/lockin/commit/9f81617e9227f6d92e21619433d2c4ee0bda1e22))
+* **work:** share layout and routing helpers ([144fbaa](https://github.com/johnstonmatt/lockin/commit/144fbaa20030f79d2563ae216228734fd85196f4))
+* **work:** type work display status and share PR node IDs ([7b436e9](https://github.com/johnstonmatt/lockin/commit/7b436e90f88c1c41176161f6043f5d6f60f3b557))
+
+
+### Documentation
+
+* **work:** describe source-owned graphs and session workflows ([db94659](https://github.com/johnstonmatt/lockin/commit/db94659d18bcf0ad659ed71c15d8c1735d75c4fb))
+
 ## [1.1.0](https://github.com/johnstonmatt/lockin/compare/v1.0.0...v1.1.0) (2026-11-17)
 
 
