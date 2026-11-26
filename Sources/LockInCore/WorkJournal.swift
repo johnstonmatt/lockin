@@ -27,13 +27,6 @@ public struct Todo: Identifiable, Equatable, Sendable {
     public var validLink: Bool { Self.isValidLink(link) }
     /// The link as a URL, when one is set and valid.
     public var linkURL: URL? { link.isEmpty || !validLink ? nil : URL(string: link) }
-    public var linkService: LinkService? { linkURL.flatMap(LinkService.init(url:)) }
-    /// What the link is shown as: the service name for Linear, GitHub and Notion, otherwise the site's host.
-    public var linkLabel: String? {
-        guard let url = linkURL else { return nil }
-        if let service = linkService { return service.label }
-        return Self.site(url.host ?? link)
-    }
     /// A host without its "www." prefix.
     private static func site(_ host: String) -> String { host.hasPrefix("www.") ? String(host.dropFirst(4)) : host }
     /// A title for a task given only a link, read from the URL itself (no network access):
@@ -78,13 +71,6 @@ public struct Todo: Identifiable, Equatable, Sendable {
 /// Services a task link is recognized as, by host.
 public enum LinkService: String, CaseIterable, Sendable {
     case linear, github, notion
-    public var label: String {
-        switch self {
-        case .linear: return "Linear"
-        case .github: return "GitHub"
-        case .notion: return "Notion"
-        }
-    }
     private var domains: [String] {
         switch self {
         case .linear: return ["linear.app"]
