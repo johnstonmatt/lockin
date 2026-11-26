@@ -4,7 +4,7 @@ public enum WorkInput {
     public static func linkIdentity(_ input: String) -> String? {
         let text = input.trimmed
         if let issue = LinearGraphClient.issueIdentifier(from: text) { return "linear:\(issue)" }
-        if let pr = PullRequestReference(url: text) { return "github:\(pr.key)" }
+        if let pr = PullRequestReference(url: text) { return pr.nodeID }
         guard !text.isEmpty, Todo.isValidLink(text), var url = URLComponents(string: text) else { return nil }
         url.scheme = url.scheme?.lowercased()
         url.host = url.host?.lowercased()

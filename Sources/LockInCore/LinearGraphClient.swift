@@ -88,7 +88,7 @@ public struct LinearGraphClient: Sendable {
             let attachments = try await pages(Attachment.self, field: "attachments", fields: "url title", id: current.id)
             for attachment in attachments {
                 guard let pr = PullRequestReference(url: attachment.url) else { continue }
-                let id = "github:\(pr.key)"
+                let id = pr.nodeID
                 if nodes[id] == nil {
                     nodes[id] = WorkNode(id: id, kind: .pullRequest, title: attachment.title, url: pr.url,
                                          label: pr.key, status: "Not fetched")

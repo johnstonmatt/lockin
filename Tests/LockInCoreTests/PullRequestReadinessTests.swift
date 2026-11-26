@@ -40,13 +40,13 @@ final class PullRequestReadinessTests: XCTestCase {
         let issue = WorkNode(id: "issue", kind: .linear, title: "Issue", status: "In review")
         XCTAssertNil(issue.displayStatus)
         var pr = WorkNode(id: "pr", kind: .pullRequest, title: "PR", status: "Open")
-        XCTAssertEqual(pr.displayStatus, "Pending", "cached lifecycle alone is not a readiness signal")
+        XCTAssertEqual(pr.displayStatus, .pending, "cached lifecycle alone is not a readiness signal")
         pr.readiness = readiness(review: "APPROVED", merge: "CLEAN")
-        XCTAssertEqual(pr.displayStatus, "Ready")
+        XCTAssertEqual(pr.displayStatus, .ready)
         pr.status = "Closed"
-        XCTAssertEqual(pr.displayStatus, "Closed")
+        XCTAssertEqual(pr.displayStatus, .closed)
         pr.resolved = true
-        XCTAssertEqual(pr.displayStatus, "Merged")
+        XCTAssertEqual(pr.displayStatus, .merged)
     }
     func testReadinessPersistsAndOldNodesDecodeWithoutIt() throws {
         var pr = WorkNode(id: "pr", kind: .pullRequest, title: "PR")

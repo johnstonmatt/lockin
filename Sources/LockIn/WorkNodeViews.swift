@@ -28,7 +28,7 @@ struct WorkNodeCard: View {
                     HStack(spacing: 5) {
                         if let status = node.displayStatus {
                             Circle().fill(color).frame(width: 5, height: 5)
-                            Text(status).foregroundStyle(color).help(node.statusExplanation)
+                            Text(status.rawValue).foregroundStyle(color).help(node.statusExplanation)
                         }
                         if !node.resolved && blockerCount > 0 { Text("· \(blockerCount) blocker\(blockerCount == 1 ? "" : "s")") }
                         Spacer(minLength: 0)
@@ -59,12 +59,12 @@ struct WorkNodeCard: View {
 extension WorkNode {
     var graphStatusColor: Color {
         switch displayStatus {
-        case "Merged": return Color(.sRGB, red: 130 / 255, green: 80 / 255, blue: 223 / 255, opacity: 1)
-        case "Ready", "Done": return .green
-        case "Failing": return .red
-        case "Passing": return .blue
-        case "Pending", "Closed": return .orange
-        default: return .secondary
+        case .merged: return Color(.sRGB, red: 130 / 255, green: 80 / 255, blue: 223 / 255, opacity: 1)
+        case .ready, .done: return .green
+        case .failing: return .red
+        case .passing: return .blue
+        case .pending, .closed: return .orange
+        case .open, .draft, nil: return .secondary
         }
     }
 }

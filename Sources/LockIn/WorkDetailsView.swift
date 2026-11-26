@@ -25,7 +25,7 @@ struct WorkDetailsView: View {
                     LocalWorkEditor(node: node).id(node.id)
                 }
                 if let status = node.displayStatus {
-                    Label(status, systemImage: node.resolved ? "checkmark.circle" : status == "Failing" ? "xmark.circle" : "circle")
+                    Label(status.rawValue, systemImage: node.resolved ? "checkmark.circle" : status == .failing ? "xmark.circle" : "circle")
                         .foregroundStyle(node.graphStatusColor)
                 }
                 if let url = URL(string: node.url), ["https", "http"].contains(url.scheme ?? "") {

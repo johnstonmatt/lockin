@@ -72,7 +72,7 @@ struct WorkListView: View {
                     }
                     Spacer(minLength: 8)
                     if let status = node.displayStatus {
-                        Text(status).font(.caption).foregroundStyle(node.graphStatusColor)
+                        Text(status.rawValue).font(.caption).foregroundStyle(node.graphStatusColor)
                     }
                 }.contentShape(Rectangle())
             }.buttonStyle(.pointer(.plain))

@@ -26,22 +26,25 @@ public enum GitHubReadinessResponse {
         var state: String?
         var isRequired: Bool
 
-        var outcome: String {
+        var outcome: Outcome {
             if let state {
                 switch state {
-                case "SUCCESS": return "SUCCESS"
-                case "FAILURE", "ERROR": return "FAILURE"
-                default: return "PENDING"
+                case "SUCCESS": return .success
+                case "FAILURE", "ERROR": return .failure
+                default: return .pending
                 }
             }
-            guard status == "COMPLETED" else { return "PENDING" }
+            guard status == "COMPLETED" else { return .pending }
             switch conclusion {
-            case "SUCCESS", "SKIPPED", "NEUTRAL": return "SUCCESS"
-            case "FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE", "STALE": return "FAILURE"
-            default: return "PENDING"
+            case "SUCCESS", "SKIPPED", "NEUTRAL": return .success
+            case "FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE", "STALE": return .failure
+            default: return .pending
             }
         }
     }
+
+    /// Stored as `PullRequestReadiness.checks`.
+    private enum Outcome: String { case success = "SUCCESS", failure = "FAILURE", pending = "PENDING" }
 
     public static func decode(_ data: Data, expectedHeadOID: String?) throws -> PullRequestReadiness {
         struct Envelope: Decodable {
@@ -102,9 +105,8 @@ public enum GitHubReadinessResponse {
                                           mergeState: pr.mergeStateStatus, isDraft: pr.isDraft, headOID: pr.headRefOid)
         }
         guard var result else { throw WorkImportError("GitHub returned no check results.") }
-        let required = checks.filter(\.isRequired)
-        result.checks = required.contains { $0.outcome == "FAILURE" } ? "FAILURE"
-            : required.contains { $0.outcome == "PENDING" } ? "PENDING" : "SUCCESS"
+        let outcomes = Set(checks.filter(\.isRequired).map(\.outcome))
+        result.checks = [Outcome.failure, .pending].first(where: outcomes.contains)?.rawValue ?? Outcome.success.rawValue
         return result
     }
 }
