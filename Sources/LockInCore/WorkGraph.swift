@@ -109,47 +109,29 @@ public struct WorkGraph: Codable, Equatable, Sendable {
         return visibleNodes.filter { upstream.contains($0.id) && !$0.resolved }
     }
     public func descendants(of roots: Set<String>) -> Set<String> {
-        var included = roots
-        var pending = Array(roots)
-        let children = Dictionary(grouping: memberships, by: \.from)
-        while let id = pending.popLast() {
-            for edge in children[id] ?? [] where included.insert(edge.to).inserted { pending.append(edge.to) }
-        }
-        return included
+        Self.closure(of: roots, along: Self.adjacency(memberships, forward: true))
     }
 
     public func selectedAncestor(of id: String, among selected: Set<String>) -> String? {
-        selected.sorted().first { $0 != id && Self.hasPath(from: $0, to: id, edges: memberships) }
+        let ancestors = Self.closure(of: [id], along: Self.adjacency(memberships, forward: false))
+        return selected.sorted().first { $0 != id && ancestors.contains($0) }
     }
 
+    /// Entries contained by another selected entry are dropped; of two entries containing each other, the smaller ID stays.
     public func topLevelIDs(_ ids: Set<String>) -> Set<String> {
-        Set(ids.filter { id in
+        let children = Self.adjacency(memberships, forward: true)
+        let reach = Dictionary(uniqueKeysWithValues: ids.map { ($0, Self.closure(of: [$0], along: children)) })
+        return ids.filter { id in
             !ids.contains { other in
-                other != id && Self.hasPath(from: other, to: id, edges: memberships) &&
-                    (!Self.hasPath(from: id, to: other, edges: memberships) || other < id)
+                other != id && reach[other]!.contains(id) && (!reach[id]!.contains(other) || other < id)
             }
-        })
+        }
     }
 
+    /// The selected entries' trees, plus every prerequisite and container needed to place them.
     public func focused(on selectedIDs: Set<String>) -> WorkGraph {
-        var tree = selectedIDs
-        var expanding = true
-        while expanding {
-            let before = tree
-            for edge in memberships where tree.contains(edge.from) { tree.insert(edge.to) }
-            expanding = before != tree
-        }
-        var included = tree
-        let dependencies = sequencing.edges
-        var changed = true
-        while changed {
-            let before = included
-            for edge in dependencies where included.contains(edge.to) { included.insert(edge.from) }
-            for edge in memberships {
-                if included.contains(edge.to) { included.insert(edge.from) }
-            }
-            changed = before != included
-        }
+        let upstream = Self.adjacency(sequencing.edges + memberships, forward: false)
+        let included = Self.closure(of: descendants(of: selectedIDs), along: upstream)
         var result = self
         result.nodes = visibleNodes.filter { included.contains($0.id) }
         return result
@@ -168,21 +150,24 @@ public struct WorkGraph: Codable, Equatable, Sendable {
         imports.append(result.snapshot)
     }
     public static func hasPath(from: String, to: String, edges: [WorkEdge]) -> Bool {
-        var pending = [from], seen = Set<String>()
-        while let next = pending.popLast() {
-            if next == to { return true }
-            guard seen.insert(next).inserted else { continue }
-            pending += edges.filter { $0.from == next }.map(\.to)
+        closure(of: [from], along: adjacency(edges, forward: true)).contains(to)
+    }
+
+    private static func adjacency(_ edges: [WorkEdge], forward: Bool) -> [String: [String]] {
+        Dictionary(grouping: edges, by: { forward ? $0.from : $0.to }).mapValues { $0.map { forward ? $0.to : $0.from } }
+    }
+
+    private static func closure(of start: Set<String>, along adjacency: [String: [String]]) -> Set<String> {
+        var reached = start, pending = Array(start)
+        while let id = pending.popLast() {
+            for next in adjacency[id] ?? [] where reached.insert(next).inserted { pending.append(next) }
         }
-        return false
+        return reached
     }
     public static func migrating(_ tasks: [Todo]) -> WorkGraph {
         var graph = WorkGraph(), seen = Set<String>()
-        let mapping = Dictionary(tasks.map { ($0.id, $0.workIdentity) }, uniquingKeysWith: { first, _ in first })
-        for task in tasks where task.hasTitle {
-            let id = mapping[task.id]!
-            guard seen.insert(id).inserted else { continue }
-            graph.nodes.append(WorkNode(id: id, kind: .local, title: task.title, url: task.link,
+        for task in tasks where task.hasTitle && seen.insert(task.workIdentity).inserted {
+            graph.nodes.append(WorkNode(id: task.workIdentity, kind: .local, title: task.title, url: task.link,
                                         resolved: task.completed))
         }
         return graph
