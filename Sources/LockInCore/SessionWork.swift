@@ -8,11 +8,7 @@ extension JournalState {
     public mutating func normalizeWorkEntries(using graph: WorkGraph) {
         func roots(_ tasks: [Todo]) -> [Todo] {
             let ids = graph.topLevelIDs(Set(tasks.map(\.workIdentity)))
-            return tasks.filter { ids.contains($0.workIdentity) }.map { task in
-                var task = task
-                task.dependencyIDs = []
-                return task
-            }
+            return tasks.filter { ids.contains($0.workIdentity) }
         }
         draft = roots(draft)
         if let index = openSessionIndex { sessions[index].todos = roots(sessions[index].todos) }

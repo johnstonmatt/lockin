@@ -17,7 +17,7 @@ final class FileFormatTests: XCTestCase {
         var first = Todo(title: "Ship it"); first.link = "https://linear.app/acme/issue/ABC-1"
         first.completed = true; first.rollForward = true; first.sourceTodoID = UUID()
         var log = WorkLog(todos: [first, Todo(title: "Quote: \"x\"\nnext line")], targetSeconds: 3600, now: start)
-        log.todos[1].dependencyIDs = [first.id]
+        log.todos[1].workNodeID = "github:acme/app#2"
         log.intervals[0].backfilled = true
         log.transition(to: .pause, at: start.addingTimeInterval(600), reason: "Call: urgent")
         log.transition(to: .work, at: start.addingTimeInterval(900))

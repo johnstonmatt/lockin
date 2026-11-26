@@ -11,7 +11,6 @@ public struct Todo: Identifiable, Equatable, Sendable {
     public var title = ""
     /// Optional web link for the task: a Linear issue, GitHub issue or PR, Notion page, or any other URL.
     public var link = ""
-    public var dependencyIDs: [UUID] = []
     public var workNodeID: String?
     public var completed = false
     public var rollForward = false
@@ -203,13 +202,9 @@ public struct WorkLog: Identifiable, Equatable, Sendable {
         }
     }
     public var rolledTodos: [Todo] {
-        let selected = todos.filter(\.rollForward)
-        let ids = Dictionary(uniqueKeysWithValues: selected.map { ($0.id, UUID()) })
-        return selected.map { old in
+        todos.filter(\.rollForward).map { old in
             var todo = Todo(title: old.title); todo.link = old.link; todo.sourceTodoID = old.id
             todo.workNodeID = old.workIdentity
-            todo.id = ids[old.id]!
-            todo.dependencyIDs = old.dependencyIDs.compactMap { ids[$0] }
             return todo
         }
     }
@@ -230,7 +225,7 @@ public struct JournalState: Equatable {
     /// The plan's tasks without the planner's blank row.
     public var plannedTasks: [Todo] { draft.filter(\.hasTitle) }
     /// Replaces the plan. An empty plan keeps one blank row ready for typing in the planner.
-    public mutating func setPlan(_ todos: [Todo]) { draft = todos.isEmpty ? [Todo()] : TaskGraph.removingMissingDependencies(todos) }
+    public mutating func setPlan(_ todos: [Todo]) { draft = todos.isEmpty ? [Todo()] : todos }
     /// A work target is more than zero and at most a day.
     public static func isValidTarget(hours: Double) -> Bool { hours.isFinite && hours > 0 && hours <= 24 }
 }

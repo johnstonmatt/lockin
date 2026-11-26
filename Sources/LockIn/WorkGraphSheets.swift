@@ -31,7 +31,7 @@ struct WorkConnectionsView: View {
             Text("GitHub").font(.headline)
             Text("Uses your GitHub CLI sign-in to read PRs and stacks. Install gh and run gh auth login in Terminal. No repository checkout is needed.")
                 .font(.callout).foregroundStyle(.secondary)
-            Text("Connections are read-only. Sequencing edits and session completion stay in Lock In.")
+            Text("Connections are read-only. Dependencies come from Linear and GitHub; session completion stays in Lock In.")
                 .font(.caption).foregroundStyle(.secondary)
             if let message { Text(message).font(.caption).textSelection(.enabled) }
             HStack { Spacer(); Button("Done") { dismiss() }.keyboardShortcut(.defaultAction) }
