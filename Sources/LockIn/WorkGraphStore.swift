@@ -7,23 +7,22 @@ extension Store {
         guard !text.isEmpty else { throw WorkImportError("Enter a URL or task name.") }
         guard workGraphWritable, !workImporting else { throw WorkImportError("Work can't be added right now. Try again shortly.") }
         let identity = WorkInput.linkIdentity(text)
+        // Links match by identity; plain task names match case-insensitively.
+        func matches(title: String, link: String) -> Bool {
+            if let identity { return WorkInput.linkIdentity(link) == identity }
+            return title.trimmed.caseInsensitiveCompare(text) == .orderedSame
+        }
         let covered = workGraph.descendants(of: sessionWorkIDs)
         let selected = sessionGraph.nodes.filter { covered.contains($0.id) }
-        if let existing = selected.first(where: {
-            if let identity { return WorkInput.linkIdentity($0.url) == identity }
-            return $0.title.trimmed.caseInsensitiveCompare(text) == .orderedSame
-        }), let ancestor = workGraph.selectedAncestor(of: existing.id, among: sessionWorkIDs) {
+        if let existing = selected.first(where: { matches(title: $0.title, link: $0.url) }),
+           let ancestor = workGraph.selectedAncestor(of: existing.id, among: sessionWorkIDs) {
             throw WorkImportError(parentEntryMessage(ancestor))
         }
-        if identity == nil && (selected.contains(where: { $0.title.trimmed.caseInsensitiveCompare(text) == .orderedSame }) ||
-            graphSessionTasks.contains(where: { $0.title.trimmed.caseInsensitiveCompare(text) == .orderedSame })) {
-            throw WorkImportError("This task is already in the session.")
+        if selected.contains(where: { matches(title: $0.title, link: $0.url) })
+            || graphSessionTasks.contains(where: { matches(title: $0.title, link: $0.link) }) {
+            throw WorkImportError(identity == nil ? "This task is already in the session." : "This link is already in the session.")
         }
         if let identity {
-            if selected.contains(where: { WorkInput.linkIdentity($0.url) == identity }) ||
-                graphSessionTasks.contains(where: { WorkInput.linkIdentity($0.link) == identity }) {
-                throw WorkImportError("This link is already in the session.")
-            }
             if let existing = workGraph.visibleNodes.first(where: { WorkInput.linkIdentity($0.url) == identity }) {
                 if let ancestor = workGraph.selectedAncestor(of: existing.id, among: sessionWorkIDs) {
                     throw WorkImportError(parentEntryMessage(ancestor))
@@ -80,15 +79,15 @@ extension Store {
 
     @discardableResult
     func applyWorkImport(_ result: WorkImportResult, addToSession: Bool, targetSession: UUID?) -> Bool {
+        let addsToSession = addToSession && workLog?.id == targetSession
         var candidate = workGraph
         candidate.merge(result)
-        if addToSession && workLog?.id == targetSession,
-           let ancestor = candidate.selectedAncestor(of: result.snapshot.id, among: sessionWorkIDs) {
+        if addsToSession, let ancestor = candidate.selectedAncestor(of: result.snapshot.id, among: sessionWorkIDs) {
             workImportMessage = parentEntryMessage(ancestor)
             return false
         }
         guard editWorkGraph({ $0.merge(result) }) else { return false }
-        if addToSession && workLog?.id == targetSession {
+        if addsToSession {
             let selected = result.nodes.filter { $0.id == result.snapshot.id }
             guard selectWorkForSession(selected) else {
                 workImportMessage = "Graph saved, but session tasks couldn't be saved. Add the saved work again to retry."
@@ -99,7 +98,7 @@ extension Store {
         workImportMessage = result.snapshot.warnings.isEmpty
             ? "Imported \(result.nodes.count) work items."
             : result.snapshot.warnings.joined(separator: "\n")
-        if addToSession && workLog?.id != targetSession {
+        if addToSession && !addsToSession {
             workImportMessage = "Graph saved. The session changed during import; add its URL again to include it."
         }
         return true
@@ -168,10 +167,9 @@ extension Store {
 
     func removeWorkFromSession(_ id: String) {
         commitJournal { journal in
-            func keep(_ task: Todo) -> Bool { task.workIdentity != id }
             if let index = journal.openSessionIndex {
-                journal.sessions[index].todos.removeAll { !keep($0) }
-            } else { journal.setPlan(journal.plannedTasks.filter(keep)) }
+                journal.sessions[index].todos.removeAll { $0.workIdentity == id }
+            } else { journal.setPlan(journal.plannedTasks.filter { $0.workIdentity != id }) }
         }
     }
 
