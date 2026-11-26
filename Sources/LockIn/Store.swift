@@ -11,6 +11,12 @@ import LockInCore
     @Published var page: Page = .focus
     @Published var lockSession = false
     @Published var journal = JournalState()
+    @Published var workGraph = WorkGraph()
+    @Published var workImporting = false
+    @Published var workImportMessage: String?
+    var workGraphWritable = true
+    var workImportTask: Task<Void, Never>?
+    var workDirectory: URL { directory }
     @Published var showPause = false
     @Published var showEndSession = false
     @Published var showReview = false
@@ -33,10 +39,11 @@ import LockInCore
     private var sleepPause: (id: UUID, phase: WorkPhase)?
     private var remoteControl: RemoteControl?
     enum Page: String, CaseIterable, Identifiable {
-        case focus = "Focus", distractions = "Distractions", history = "History", settings = "Settings"
+        case focus = "Focus", work = "Work", distractions = "Distractions", history = "History", settings = "Settings"
         var id: String { rawValue }
         var icon: String {
             switch self {
+            case .work: return "point.3.connected.trianglepath.dotted"
             case .focus: return "scope"
             case .distractions: return "hand.raised"
             case .history: return "chart.bar.xaxis"
@@ -60,6 +67,18 @@ import LockInCore
                 message = "Some session files couldn't be read. They're left as they are and don't appear in History:\n" + contents.skipped.joined(separator: "\n")
             }
         }
+        do {
+            if let graph = try WorkGraphStorage.load(from: self.directory) { workGraph = graph }
+            else {
+                let current = journal.openSession?.todos ?? []
+                let review = journal.sessions.first { $0.id == journal.pendingReviewID }?.todos ?? []
+                workGraph = WorkGraph.migrating(journal.draft + current + review)
+                if !workGraph.nodes.isEmpty { try WorkGraphStorage.save(workGraph, in: self.directory) }
+            }
+        } catch {
+            workGraphWritable = false
+            workImportMessage = "Couldn't read or save work-graph.json: \(error.localizedDescription). The file is left unchanged."
+        }
         if state.profiles.isEmpty { state.profiles = [Profile()] }
         if !state.profiles.contains(where: { $0.id == state.selectedProfileID }) { state.selectedProfileID = state.profiles[0].id }
         sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
@@ -70,6 +89,8 @@ import LockInCore
             Task { @MainActor in self?.resumeAfterWake() }
         }
         restoreSession(checkpoint: contents?.checkpoint)
+        normalizeSessionEntries()
+        syncLocalWork()
         tick()
         if let channel { remoteControl = RemoteControl(store: self, channel: channel) }
         guard runTimer else { return }
@@ -221,7 +242,7 @@ import LockInCore
     }
     /// Saves a session's new task list, rolling back if the journal can't be written.
     private func replaceTasks(_ todos: [Todo], inSession index: Int) -> Bool {
-        commitJournal { $0.sessions[index].todos = todos }
+        commitJournal { $0.sessions[index].todos = TaskGraph.removingMissingDependencies(todos) }
     }
     /// Used by Scripts/install-app.sh: pauses a working or break phase, remembers to resume after relaunch, then quits.
     /// A pause you started yourself is left alone. Hardcore Mode refuses, as it does for any quit.
@@ -318,7 +339,9 @@ import LockInCore
     @discardableResult func commitJournal(_ change: (inout JournalState) throws -> Void) rethrows -> Bool {
         let previous = journal
         do { try change(&journal) } catch { journal = previous; throw error }
+        journal.normalizeWorkEntries(using: workGraph)
         guard persist() else { journal = previous; return false }
+        syncLocalWork()
         return true
     }
     func completeReview() {

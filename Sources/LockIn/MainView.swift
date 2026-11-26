@@ -21,26 +21,31 @@ struct MainView: View {
                 }.font(.caption).foregroundStyle(.secondary).padding(20)
             }.navigationSplitViewColumnWidth(195)
         } detail: {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(store.page.rawValue).font(.system(size: 28, weight: .semibold, design: .rounded))
-                            Text(subtitle).foregroundStyle(.secondary)
+            if store.page == .work {
+                WorkView()
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 24) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(store.page.rawValue).font(.system(size: 28, weight: .semibold, design: .rounded))
+                                Text(subtitle).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Label(statusText, systemImage: store.active ? "circle.fill" : "shield.lefthalf.filled")
+                                .font(.caption).foregroundStyle(accent).padding(10).background(accent.opacity(0.1), in: Capsule())
                         }
-                        Spacer()
-                        Label(statusText, systemImage: store.active ? "circle.fill" : "shield.lefthalf.filled")
-                            .font(.caption).foregroundStyle(accent).padding(10).background(accent.opacity(0.1), in: Capsule())
-                    }
-                    switch store.page {
-                    case .focus: FocusView()
-                    case .distractions: DistractionsView()
-                    case .history: HistoryView()
-                    case .settings: PreferencesView()
-                    }
-                }.padding(32).frame(maxWidth: 950)
-                    .frame(maxWidth: .infinity).clearsFieldFocusOnClick()
-            }.background(Color(nsColor: .windowBackgroundColor))
+                        switch store.page {
+                        case .work: EmptyView()
+                        case .focus: FocusView()
+                        case .distractions: DistractionsView()
+                        case .history: HistoryView()
+                        case .settings: PreferencesView()
+                        }
+                    }.padding(32).frame(maxWidth: 950)
+                        .frame(maxWidth: .infinity).clearsFieldFocusOnClick()
+                }.background(Color(nsColor: .windowBackgroundColor))
+            }
         }
         .sheet(isPresented: $store.showPause) { PauseView().environmentObject(store).buttonStyle(.pointer(.automatic)) }
         .sheet(isPresented: $store.showEndSession, onDismiss: { if store.journal.pendingReviewID != nil { store.showReview = true } }) {
@@ -66,6 +71,7 @@ struct MainView: View {
     }
     private var subtitle: String {
         switch store.page {
+        case .work: return "Connect issues and pull requests in the order work needs to happen."
         case .focus: return "Make room for what matters."
         case .distractions: return "Choose what stays outside your focus time."
         case .history: return "Small sessions add up."
@@ -109,12 +115,7 @@ struct FocusView: View {
                 if log.phase == .pause { Text(log.intervals.last?.reason ?? "").foregroundStyle(.secondary) }
                 SessionButtons(showStartNewDay: true)
             }
-            Card {
-                Text("This session’s tasks").font(.headline)
-                ForEach(log.todos) { todo in SessionTaskRow(todo: todo) }
-                AddSessionTask()
-                Text("Tick tasks off as you go. Choose what carries forward in the completion review.").font(.caption).foregroundStyle(.secondary)
-            }
+            Card { SessionWorkSummary() }
         } else if store.journal.pendingReviewID != nil {
             Card { Text("Session complete").font(.title2); Text("Review your day and choose what comes next."); Button("Review day") { store.showReview = true }.buttonStyle(.pointer(.borderedProminent)) }
         } else {
@@ -133,58 +134,19 @@ private func heading(_ phase: WorkPhase?) -> String {
     }
 }
 
-struct SessionTaskRow: View {
+struct SessionWorkSummary: View {
     @EnvironmentObject var store: Store
-    let todo: Todo
-    @State private var editing = false
-    @State private var title = ""
-    @State private var link = ""
-    private var canSave: Bool { todo.with(title: title, link: link).isValid }
     var body: some View {
-        if editing {
-            TaskForm(title: $title, link: $link, placeholder: "Task", onSubmit: save) {
-                Button(role: .destructive) { store.deleteTask(id: todo.id) } label: { Image(systemName: "trash") }
-                    .buttonStyle(.pointer(.plain)).foregroundStyle(.red)
-                    .help("Delete task").accessibilityLabel("Delete \(todo.title)")
-                Button("Cancel") { editing = false }.keyboardShortcut(.cancelAction)
-                Button("Save", action: save).buttonStyle(.pointer(.borderedProminent)).disabled(!canSave)
+        HStack {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(store.workLog == nil ? "Work for the next session" : "This session’s work").font(.headline)
+                let tasks = store.graphSessionTasks
+                Text(tasks.isEmpty ? "Choose work before starting your session." : "\(tasks.count) items · \(tasks.filter(\.completed).count) done")
+                    .font(.callout).foregroundStyle(.secondary)
             }
-        } else {
-            HStack {
-                Button { store.setTaskCompleted(id: todo.id, !todo.completed) } label: {
-                    Image(systemName: todo.completed ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(todo.completed ? Color.green : .secondary).contentShape(Rectangle())
-                }
-                .buttonStyle(.pointer(.plain))
-                .help(todo.completed ? "Mark as not done" : "Mark as done")
-                .accessibilityLabel(todo.title).accessibilityValue(todo.completed ? "Done" : "Not done")
-                Text(todo.title).strikethrough(todo.completed).foregroundStyle(todo.completed ? .secondary : .primary)
-                Spacer()
-                TaskLinkBadge(todo: todo)
-                Button { title = todo.title; link = todo.link; editing = true } label: { Image(systemName: "pencil") }
-                    .buttonStyle(.pointer(.plain)).help("Edit task").accessibilityLabel("Edit \(todo.title)")
-            }
+            Spacer()
+            Button("Open Work", systemImage: "arrow.right") { store.page = .work }
         }
-    }
-    private func save() {
-        guard canSave, store.updateTask(id: todo.id, title: title, link: link) else { return }
-        editing = false
-    }
-}
-
-struct AddSessionTask: View {
-    @EnvironmentObject var store: Store
-    @State private var title = ""
-    @State private var link = ""
-    private var canAdd: Bool { Todo().with(title: title, link: link).isValid }
-    var body: some View {
-        TaskForm(title: $title, link: $link, placeholder: "Add a task…", icon: "plus", onSubmit: add) {
-            Button("Add", systemImage: "plus", action: add).disabled(!canAdd)
-        }
-    }
-    private func add() {
-        guard canAdd, store.addTask(title: title, link: link) else { return }
-        title = ""; link = ""
     }
 }
 
