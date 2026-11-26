@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.2.1](https://github.com/johnstonmatt/lockin/compare/v1.2.0...v1.2.1) (2026-11-26)
+
+
+### Bug Fixes
+
+* mark mergeable unstable PRs ready when required checks pass ([5618913](https://github.com/johnstonmatt/lockin/commit/5618913fa4d1bdc0edac52d45a7a7a4cf7d7f612))
+
+
+### Documentation
+
+* move development and release instructions to CONTRIBUTING.md ([c574e11](https://github.com/johnstonmatt/lockin/commit/c574e1158184223710f0afaa2be1e7ac7ccc72bf))
+* reorganize README around setup and daily use ([7fa113a](https://github.com/johnstonmatt/lockin/commit/7fa113a25cc46b5cf4017dbf494c2a7643f96517))
+
 ## [1.2.0](https://github.com/johnstonmatt/lockin/compare/v1.1.0...v1.2.0) (2026-11-26)
 
 
