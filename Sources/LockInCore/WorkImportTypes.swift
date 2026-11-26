@@ -11,6 +11,7 @@ public struct PullRequestReference: Hashable, Sendable {
     public var number: Int
     public var url: String { "https://github.com/\(repository)/pull/\(number)" }
     public var key: String { "\(repository.lowercased())#\(number)" }
+    public var nodeID: String { "github:\(key)" }
     public init?(url: String) {
         guard let parsed = URL(string: url), parsed.scheme == "https", parsed.host?.lowercased() == "github.com" else { return nil }
         let parts = parsed.pathComponents.filter { $0 != "/" }

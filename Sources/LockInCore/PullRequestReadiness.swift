@@ -45,5 +45,4 @@ public struct PullRequestReadiness: Codable, Equatable, Sendable {
         }
         return [checkMessage, reviewMessage, gateMessage].filter { !$0.isEmpty }.joined(separator: " ")
     }
-
 }

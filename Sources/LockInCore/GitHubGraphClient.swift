@@ -19,7 +19,7 @@ public struct GitHubGraphClient: Sendable {
         var node: WorkNode? {
             guard let reference else { return nil }
             let merged = merged_at != nil
-            return WorkNode(id: "github:\(reference.key)", kind: .pullRequest, title: title, url: reference.url,
+            return WorkNode(id: reference.nodeID, kind: .pullRequest, title: title, url: reference.url,
                 label: reference.key, status: merged ? "Merged" : state == "closed" ? "Closed" : draft == true ? "Draft" : "Open",
                 resolved: merged, attention: state == "closed" && !merged)
         }
@@ -89,7 +89,7 @@ public struct GitHubGraphClient: Sendable {
                     }
                     queue += refs
                     for (first, second) in zip(refs, refs.dropFirst()) {
-                        edges.append(WorkEdge(from: "github:\(first.key)", to: "github:\(second.key)", kind: .depends, source: .stack))
+                        edges.append(WorkEdge(from: first.nodeID, to: second.nodeID, kind: .depends, source: .stack))
                     }
                 }
             } else {
@@ -107,7 +107,7 @@ public struct GitHubGraphClient: Sendable {
                 let candidates = try await branchCandidates(for: pr, repository: reference.repository)
                 if candidates.count == 1, let upstream = candidates[0].reference {
                     queue.append(upstream)
-                    edges.append(WorkEdge(from: "github:\(upstream.key)", to: node.id, kind: .depends, source: .branch))
+                    edges.append(WorkEdge(from: upstream.nodeID, to: node.id, kind: .depends, source: .branch))
                 } else if candidates.count > 1 {
                     result.snapshot.warnings.append("Multiple PRs match the base branch of \(reference.key); no ordering was inferred.")
                 }

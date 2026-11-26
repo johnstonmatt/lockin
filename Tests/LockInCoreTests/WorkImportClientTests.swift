@@ -151,7 +151,7 @@ final class WorkImportClientTests: XCTestCase {
                                        readinessRequest: { _ in response })
         let result = try await client.enrich(seed())
         let ready = try XCTUnwrap(result.nodes.first { $0.id == "github:acme/app#12" })
-        XCTAssertEqual(ready.displayStatus, "Ready")
+        XCTAssertEqual(ready.displayStatus, .ready)
         XCTAssertNil(result.nodes.first { $0.resolved }?.readiness, "merged PRs need no review query")
         let unavailable = GitHubGraphClient(request: { route in try await fixture.request(route) },
                                             readinessRequest: { _ in throw WorkImportError("Access denied") })

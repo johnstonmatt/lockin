@@ -15,7 +15,7 @@ public struct WorkImporter: Sendable {
     public func fetch(_ input: String, preserving importedIDs: Set<String>) async throws -> WorkImportResult {
         try Task.checkCancellation()
         if let pr = PullRequestReference(url: input.trimmed) {
-            let id = "github:\(pr.key)"
+            let id = pr.nodeID
             let node = WorkNode(id: id, kind: .pullRequest, title: pr.key, url: pr.url, label: pr.key)
             var result = try await enrichGitHub(WorkImportResult(nodes: [node], snapshot:
                 WorkImport(id: id, url: pr.url, nodeIDs: [id], edges: [])))
