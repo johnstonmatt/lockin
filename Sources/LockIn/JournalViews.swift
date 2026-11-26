@@ -1,18 +1,18 @@
 import SwiftUI
 import LockInCore
 
-struct TodoEditor: View {
+/// A task in the day review: its title and link, whether it's done, and whether it carries into the next session.
+struct ReviewTaskEditor: View {
     @Binding var todo: Todo
-    var review = false
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                if review { Toggle("Done", isOn: $todo.completed).toggleStyle(.checkbox) }
+                Toggle("Done", isOn: $todo.completed).toggleStyle(.checkbox)
                 TextField("What are you working on?", text: $todo.title).textFieldStyle(.lockIn())
             }
             HStack {
                 TaskLinkField(link: $todo.link)
-                if review { Toggle("Next session", isOn: $todo.rollForward).toggleStyle(.checkbox) }
+                Toggle("Next session", isOn: $todo.rollForward).toggleStyle(.checkbox)
             }
             LinkRequirementNote(link: todo.link)
         }.padding(.vertical, 6)
@@ -90,7 +90,7 @@ struct DayReviewView: View {
                     if let index = store.reviewIndex {
                         Text("Update your TODOs").font(.headline)
                         Text("Choose “Next session” for each task you want to carry forward. It will be copied into the next plan; this session’s record stays intact.").font(.caption).foregroundStyle(.secondary)
-                        ForEach($store.journal.sessions[index].todos) { $todo in TodoEditor(todo: $todo, review: true) }
+                        ForEach($store.journal.sessions[index].todos) { $todo in ReviewTaskEditor(todo: $todo) }
                         Button("Add task", systemImage: "plus") { store.journal.sessions[index].todos.append(Todo()) }
                     }
                 }
