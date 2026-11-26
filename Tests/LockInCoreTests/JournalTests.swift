@@ -110,17 +110,15 @@ final class JournalTests: XCTestCase {
         _ = log.endEarly(reason: "Done", at: start.addingTimeInterval(120))
         XCTAssertFalse(log.addEvent("Too late", at: start.addingTimeInterval(180)))
     }
-    func testLinksAreLabelledByService() {
-        func label(_ link: String) -> String? { var todo = Todo(title: "t"); todo.link = link; return todo.linkLabel }
-        XCTAssertEqual(label("https://linear.app/acme/issue/ABC-1"), "Linear")
-        XCTAssertEqual(label("https://github.com/acme/app/pull/12"), "GitHub")
-        XCTAssertEqual(label("https://gist.github.com/someone/abc"), "GitHub")
-        XCTAssertEqual(label("https://www.notion.so/acme/Plan-123"), "Notion")
-        XCTAssertEqual(label("https://acme.notion.site/Plan-123"), "Notion")
-        XCTAssertEqual(label("https://www.example.com/page"), "example.com")
-        XCTAssertEqual(label("https://notgithub.com/x"), "notgithub.com", "a lookalike domain is not GitHub")
-        XCTAssertNil(label(""))
-        XCTAssertNil(label("not a url"))
+    func testLinksAreRecognizedByService() {
+        func service(_ link: String) -> LinkService? { URL(string: link).flatMap(LinkService.init(url:)) }
+        XCTAssertEqual(service("https://linear.app/acme/issue/ABC-1"), .linear)
+        XCTAssertEqual(service("https://github.com/acme/app/pull/12"), .github)
+        XCTAssertEqual(service("https://gist.github.com/someone/abc"), .github)
+        XCTAssertEqual(service("https://www.notion.so/acme/Plan-123"), .notion)
+        XCTAssertEqual(service("https://acme.notion.site/Plan-123"), .notion)
+        XCTAssertNil(service("https://www.example.com/page"))
+        XCTAssertNil(service("https://notgithub.com/x"), "a lookalike domain is not GitHub")
     }
     func testLinkValidation() {
         XCTAssertTrue(Todo.isValidLink(""))
