@@ -52,6 +52,8 @@
         "id": { "$ref": "#/$defs/uuid" },
         "title": { "type": "string", "description": "May be empty only for the planner's blank row." },
         "link": { "type": "string", "description": "An http(s) link for the task, such as a Linear issue, GitHub pull request or Notion page." },
+        "work_node_id": { "type": "string" },
+        "dependency_ids": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/uuid" }, "description": "Tasks in this plan or session that must finish first." },
         "completed": { "type": "boolean" },
         "roll_into_next_session": { "type": "boolean", "description": "Chosen in the review: copy this task into the next session's plan." },
         "source_task_id": { "$ref": "#/$defs/uuid", "description": "The task this one was carried forward from." }
