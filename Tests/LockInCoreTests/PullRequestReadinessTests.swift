@@ -36,6 +36,16 @@ final class PullRequestReadinessTests: XCTestCase {
         }
         XCTAssertEqual(readiness(nil).status, .pending)
     }
+    func testUnstableRequiresPassingRequiredChecksAndSatisfiedReviews() {
+        XCTAssertEqual(readiness(review: "APPROVED", merge: "UNSTABLE").status, .ready)
+        XCTAssertEqual(readiness(review: nil, merge: "UNSTABLE").status, .ready)
+        for review in ["REVIEW_REQUIRED", "CHANGES_REQUESTED"] {
+            XCTAssertEqual(readiness(review: review, merge: "UNSTABLE").status, .passing)
+        }
+        XCTAssertEqual(readiness("FAILURE", review: "APPROVED", merge: "UNSTABLE").status, .failing)
+        XCTAssertEqual(readiness("PENDING", review: "APPROVED", merge: "UNSTABLE").status, .pending)
+        XCTAssertEqual(readiness(review: "APPROVED", merge: "UNSTABLE", draft: true).status, .draft)
+    }
     func testLinearStatusIsHiddenAndTerminalPRsStayTerminal() {
         let issue = WorkNode(id: "issue", kind: .linear, title: "Issue", status: "In review")
         XCTAssertNil(issue.displayStatus)
@@ -56,9 +66,9 @@ final class PullRequestReadinessTests: XCTestCase {
         let data = try FileFormat.encoder.encode(pr)
         XCTAssertEqual(try FileFormat.decoder.decode(WorkNode.self, from: data), pr)
     }
-    private func response(head: String = "abc", commit: String = "abc", error: Bool = false, checks: [[String: Any]] = [], more: Bool = false) throws -> Data {
+    private func response(head: String = "abc", commit: String = "abc", error: Bool = false, checks: [[String: Any]] = [], more: Bool = false, merge: String = "CLEAN") throws -> Data {
         var object: [String: Any] = ["data": ["repository": ["pullRequest": [
-            "headRefOid": head, "isDraft": false, "reviewDecision": "APPROVED", "mergeStateStatus": "CLEAN",
+            "headRefOid": head, "isDraft": false, "reviewDecision": "APPROVED", "mergeStateStatus": merge,
             "commits": ["nodes": [["commit": ["oid": commit, "statusCheckRollup": ["contexts": ["pageInfo": ["hasNextPage": more], "nodes": checks]]]]]]
         ]]]]
         if error { object["errors"] = [["message": "denied"]] }
@@ -86,6 +96,13 @@ final class PullRequestReadinessTests: XCTestCase {
         XCTAssertEqual(try GitHubReadinessResponse.decode(response(checks: [check("RUNNING")]), expectedHeadOID: "abc").status, .pending)
         XCTAssertEqual(try GitHubReadinessResponse.decode(response(checks: [check("RUNNING", required: false)]), expectedHeadOID: "abc").status, .ready)
         XCTAssertEqual(try GitHubReadinessResponse.decode(response(checks: [check("SKIPPED"), check("NEUTRAL")]), expectedHeadOID: "abc").status, .ready)
+    }
+    func testOptionalCancelledCheckDoesNotPreventUnstablePRBeingReady() throws {
+        let data = try response(checks: [check("SUCCESS"), check("CANCELLED", required: false, name: "size")], merge: "UNSTABLE")
+        let result = try GitHubReadinessResponse.decode(data, expectedHeadOID: "abc")
+        XCTAssertEqual(result.status, .ready)
+        XCTAssertEqual(result.reviewDecision, "APPROVED")
+        XCTAssertEqual(result.checks, "SUCCESS")
     }
     func testLegacyStatusContextsAndUnknownCheckStates() throws {
         for (state, expected) in [("SUCCESS", PullRequestReadiness.Status.ready), ("ERROR", .failing), ("PENDING", .pending)] {
