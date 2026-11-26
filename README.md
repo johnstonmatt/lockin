@@ -42,18 +42,37 @@ Open Lock In, enter your TODOs (each can have an optional link, shown as Linear,
 - Sleep and unexpected app downtime become system-explained pauses. Waking the Mac picks up where sleep left off: work resumes, or a break continues if break time is left. A pause you made yourself, or anything you changed while the Mac slept, is left alone. App checkpoints are written every ten seconds; abrupt termination may lose at most the work since the last successful checkpoint. No idle/keyboard monitoring is performed: time counts as work while the work phase is running.
 - Continuous Pomodoro and open-ended sessions are superseded by this work-target flow.
 
+## Work
+
+Choose **Work** to see the current focused session (or the next session’s plan). **Add work** imports the issue and its descendants, their linked GitHub PRs, and their sequencing dependencies. The imported root is the session entry; its descendants are source-owned work. Prerequisites outside the issue tree are visible as muted **Context** cards; **Include in session** makes one part of the session’s work.
+
+**Graph View** shows dependencies and issue regions. **List View** nests sub-issues and associated PRs beneath their parent issues, with session-completion controls on selected entries. Issue groups start expanded; collapse state is shared with Graph View, and collapsed rows show their hidden-item count. The PR-only filter shows a flat list with parent-issue breadcrumbs. Context work stays muted within the hierarchy. Both views share the same work, filters, selection, and details panel; changing views does not change the session. Graph is the default, and the last view choice is remembered. **Focus** contains session planning, timing, breaks, pauses, and review, with a work summary linking back to Work.
+
+Open **Connections** using the key button. Add a Linear personal API key with read access to the relevant teams; it is stored in macOS Keychain, separate from the work files. GitHub reads use an installed GitHub CLI and its existing sign-in (`gh auth login`). GitHub.com PRs are supported. Importing uses read-only APIs and never checks out branches or changes Linear or GitHub.
+
+PRs flow downward in dependency order across issue groups. The layout aligns connected work, reuses columns where vertical spans do not overlap, and packs disconnected groups into rows. Neighbor-ordering sweeps prefer fewer crossings and shorter links; arrows use at most two rounded bends, connecting to card sides when needed to avoid intervening cards. Solid arrows represent explicit Linear blockers or GitHub stack order; dashed arrows represent inferred branch relationships. GitHub stack membership and order come from the same remote stack data used by `gh stack`. Branch inference matches repository identity and base/head refs; ambiguous matches are reported without adding an order. Linear issues with sub-issues or linked PRs appear as nested regions. Region headers show the issue and a summary of its work. Linear workflow statuses are not displayed. Hierarchy implies containment, not sequencing. Collapse a region to summarize its contents while retaining crossing dependencies, or use **All work / Issues / PRs** to focus the canvas.
+
+Dependencies and containment are read-only. Correct relationships in Linear or GitHub; conflicting source dependencies are reported in details.
+
+Drag empty space to pan, pinch or use +/− to zoom, and choose **Fit graph** to center the graph. **Refresh** reloads an imported tree without adding tasks back to the session. Imports are saved locally. **Add work** accepts a URL or task name, reuses known links, and rejects work already selected or included through a selected parent. Linear issue and GitHub PR URLs load their dependencies; other URLs create linked local tasks. Refresh failures preserve the saved graph; an initial import can retain Linear work with an explicit warning if PR details cannot be read. Imports are bounded at 250 issues and 400 PRs.
+
+PR status is **Draft**, **Pending**, **Failing**, **Passing**, or **Ready**. Drafts stay marked Draft. Failing means a required check failed; Passing means required checks succeeded (or none are required) but the remaining requirements are not confirmed. Ready requires passing checks (or no required checks), satisfied review requirements, and GitHub’s confirmation that merge gates are clear. Pending covers unfinished or unavailable results. Required review decisions come from GitHub’s aggregate evaluation rather than locally counting approvals. Merged and closed PRs retain their terminal labels. Optional checks do not determine Passing or Failing. Open the PR on GitHub to inspect individual checks.
+
+Remote status and session completion are separate. A merged PR satisfies its dependencies; a closed, unmerged PR does not. **Done for this session** records your session progress and does not update Linear or GitHub. Completed and canceled source work is not automatically selected into the session. Source statuses refresh on request.
+
 ## Journal files
 
-Everything Lock In saves is JSON in `~/.lockin`, defined by the JSON Schemas in [`Schemas/`](Schemas). Each file names its schema in `$schema`, so editors that validate JSON check hand edits.
+Work and session data are saved as JSON in `~/.lockin`, defined by the JSON Schemas in [`Schemas/`](Schemas). Each file names its schema in `$schema`, so editors that validate JSON check hand edits.
 
 - `sessions/2026-11-04T09-00.json` ([schema](Schemas/session-v1.schema.json)): one file per session, named after when it started, in local time to the minute. A second session started in the same minute gets `.2` before `.json`. The name doesn't change afterwards, even if a backfill moves the start earlier. Each file holds the session's `id`, and that's how Lock In finds it, so renaming a file is harmless. The file holds the target, tasks and links, the timeline of work, overtime, break and pause intervals (with pause reasons), and events. These files are the record of your work: History, the day review and `lockin history` are built from them.
 - `settings.json` ([schema](Schemas/settings-v1.schema.json)): profiles, the plan for the next session, and bookkeeping between launches, such as the session waiting for review and the last backfill.
+- `work-graph.json` ([schema](Schemas/work-graph-v1.schema.json)): persistent work nodes, import snapshots, source-owned relationships. Session tasks reference nodes with `work_node_id`; their titles and completion remain recorded in the session. Rolling tasks forward preserves their work references.
 
 Timestamps are ISO 8601 in UTC with microseconds. Each file is written atomically, and only when it changes. The open session's file is also written every ten seconds, with `checkpoint_at`: if Lock In quits unexpectedly, the time after that becomes a pause. Session files are written before settings, so an interrupted save never leaves settings pointing at a session that doesn't exist.
 
 The files are yours to read and edit, preferably while Lock In isn't running, since it rewrites the open session every ten seconds. A session file that can't be read, or was written by a newer Lock In, is skipped with a warning and never overwritten. If `settings.json` can't be read, Lock In saves nothing until it's fixed.
 
-Links are saved as URLs only. No Linear, GitHub or Notion account access or API integration is required.
+Ordinary task links need no account connection. Linear tree imports require the configured Linear key and GitHub access for PR enrichment. Credentials are not stored in journal or graph files.
 
 ## Other features
 
@@ -145,6 +164,10 @@ The global shortcut may be unavailable if another app already owns it. macOS mus
 
 - `LockInCore`: session and journal models, the URL-rule matcher, and storage. `FileFormat` holds the on-disk types, kept separate from the models so a model change can't silently change the files. Tests check what's written against `Schemas/`. `Storage` reads `~/.lockin`; `StorageWriter` writes only what changed.
 - `Store`: main-actor session orchestration, persistence through `StorageWriter`, and workflow execution.
+- `SessionWork`: shared task identity and session edits; `WorkGraphStore` coordinates session selection, completion, and graph persistence.
+- `WorkImporter`: import and refresh policy with injectable Linear and GitHub operations. Provider clients own their API responses; `PullRequestReadiness` owns PR status rules. `WorkConnections` supplies credentials and transports.
+- `WorkPresentation`: an immutable projection shared by the list, graph, and details views. `WorkHierarchy` defines containment, `WorkGraphLayout` places cards and regions, and `WorkEdgeRoute` routes dependencies. `WorkGeometry` keeps routing clearance and rendering dimensions consistent.
+- `WorkView`: coordinates selection, filters, and sheets. The graph canvas, list, details, and node views own their respective presentation and interactions.
 - `Blocker`: serialized browser Apple events, cancellation on stop/break, application hiding.
 - `RemoteControl`: answers `lockin` CLI requests by calling the same `Store` methods as the UI.
 - `LockInCLI`: the `lockin` command. It reads `~/.lockin` directly and sends everything else to the app. It ships in the app bundle as `Contents/Helpers/lockin`.
