@@ -10,14 +10,11 @@ struct WorkGraphLayout {
     }
     static let cardSize = CGSize(width: 230, height: 120)
     static let regionHeaderHeight: CGFloat = 92
-    // Two opposing arrows need 18-point approaches and ten points between their lanes.
-    static let columnGap = WorkGeometry.columnGap
     var positions: [String: CGPoint] = [:]
     var frames: [String: CGRect] = [:]
     var groups: [Group] = []
     var representatives: [String: String] = [:]
     var size = CGSize(width: 400, height: 300)
-    var expandable = Set<String>()
 
     init(graph: WorkGraph, filter: WorkFilter, collapsed: Set<String>,
          hierarchy: WorkHierarchy? = nil, dependencies: [WorkEdge]? = nil) {
@@ -27,11 +24,7 @@ struct WorkGraphLayout {
             Self(graph: graph, filter: filter, collapsed: collapsed, laneFactor: $0, hierarchy: hierarchy, dependencies: dependencies)
         }
         func cost(_ layout: Self) -> Double {
-            let edges = dependencies.compactMap { edge -> WorkEdge? in
-                guard let from = layout.representatives[edge.from], let to = layout.representatives[edge.to], from != to else { return nil }
-                return WorkEdge(from: from, to: to, kind: .depends, source: edge.source)
-            }
-            return Self.score(layout.frames, edges: edges, width: layout.size.width, height: layout.size.height)
+            Self.score(layout.frames, edges: layout.renderedEdges(dependencies), width: layout.size.width, height: layout.size.height)
         }
         let ranked = candidates.enumerated().map { (index: $0.offset, layout: $0.element, cost: cost($0.element)) }
             .sorted { ($0.cost, $0.index) < ($1.cost, $1.index) }
@@ -54,7 +47,7 @@ struct WorkGraphLayout {
         let shown = Set(nodes.filter {
             filter.includes($0)
         }.map(\.id))
-        expandable = Set(parent.values).intersection(shown)
+        let expandable = Set(parent.values).intersection(shown)
         for id in shown {
             var representative = id
             var ancestor = parent[id]
@@ -73,10 +66,7 @@ struct WorkGraphLayout {
             else { roots.append(id) }
         }
 
-        var edges = sourceDependencies.compactMap { edge -> WorkEdge? in
-            guard let from = representatives[edge.from], let to = representatives[edge.to], from != to else { return nil }
-            return WorkEdge(from: from, to: to, kind: .depends, source: edge.source)
-        }
+        var edges = renderedEdges(sourceDependencies)
         for id in rendered {
             if let owner = parent[id], rendered.contains(owner),
                !WorkGraph.hasPath(from: id, to: owner, edges: edges) {
@@ -88,11 +78,7 @@ struct WorkGraphLayout {
         // Schedule sibling blocks into a small set of lanes; only add constraints that preserve the DAG.
         for members in [roots] + children.keys.sorted().map({ children[$0]! }) where members.count > 1 && laneFactor > 0 {
             let memberSet = Set(members)
-            var owner: [String: String] = [:]
-            for id in members {
-                owner[id] = id
-                for child in hierarchy.descendants(id) where rendered.contains(child) { owner[child] = id }
-            }
+            let owner = Self.blockOwners(members, hierarchy: hierarchy, rendered: rendered)
             var upstream: [String: Set<String>] = [:]
             for edge in dependencies {
                 if let from = owner[edge.from], let to = owner[edge.to], from != to { upstream[to, default: []].insert(from) }
@@ -141,14 +127,15 @@ struct WorkGraphLayout {
             }
         }
         func height(_ id: String) -> CGFloat { regionIDs.contains(id) ? Self.regionHeaderHeight : Self.cardSize.height }
+        let incoming = Dictionary(grouping: edges, by: \.to)
         var y: [String: CGFloat] = [:]
         var remaining = rendered
         while !remaining.isEmpty {
-            var ready = remaining.filter { id in edges.filter { $0.to == id }.allSatisfy { !remaining.contains($0.from) } }
+            var ready = remaining.filter { id in (incoming[id] ?? []).allSatisfy { !remaining.contains($0.from) } }
             // Collapsing interleaved stacks can create a cycle between aggregate regions.
             if ready.isEmpty { ready = [remaining.sorted()[0]] }
             for id in ready.sorted() {
-                let top = edges.filter { $0.to == id }.compactMap { edge -> CGFloat? in
+                let top = (incoming[id] ?? []).compactMap { edge -> CGFloat? in
                     guard let sourceY = y[edge.from] else { return nil }
                     return sourceY + height(edge.from) + (edge.kind == .contains ? 16 : clearance[edge.id] ?? 44)
                 }.max() ?? 20
@@ -185,11 +172,7 @@ struct WorkGraphLayout {
             var offsets: [String: CGFloat] = [:]
             func pack(_ members: [String]) -> CGFloat {
                 guard !members.isEmpty else { return 0 }
-                var owner: [String: String] = [:]
-                for id in members {
-                    owner[id] = id
-                    for child in hierarchy.descendants(id) where rendered.contains(child) { owner[child] = id }
-                }
+                let owner = Self.blockOwners(members, hierarchy: hierarchy, rendered: rendered)
                 var neighbors: [String: [String]] = [:]
                 for edge in dependencies {
                     if let from = owner[edge.from], owner[edge.to] != from { neighbors[from, default: []].append(edge.to) }
@@ -215,7 +198,7 @@ struct WorkGraphLayout {
                     let target = desired(id, placed: placed)
                     let available = columns.indices.filter { ends[$0] + 16 <= (y[id] ?? 20) }
                     func center(_ index: Int) -> CGFloat {
-                        columnWidths.prefix(index).reduce(0, +) + CGFloat(index) * Self.columnGap + columnWidths[index] / 2
+                        columnWidths.prefix(index).reduce(0, +) + CGFloat(index) * WorkGeometry.columnGap + columnWidths[index] / 2
                     }
                     let chosen: Int
                     if let target {
@@ -232,9 +215,9 @@ struct WorkGraphLayout {
                 var left: CGFloat = 0
                 for (index, column) in columns.enumerated() {
                     for id in column { offsets[id] = left + (columnWidths[index] - (widths[id] ?? Self.cardSize.width)) / 2 }
-                    left += columnWidths[index] + Self.columnGap
+                    left += columnWidths[index] + WorkGeometry.columnGap
                 }
-                return left - Self.columnGap
+                return left - WorkGeometry.columnGap
             }
             for id in insideOut {
                 let contentWidth = pack(children[id] ?? [])
@@ -262,6 +245,14 @@ struct WorkGraphLayout {
             bounds[id] = rect
             groups.append(Group(id: id, rect: rect, depth: depth[id] ?? 0, memberIDs: hierarchy.descendants(id)))
         }
+        packComponents(rendered, edges: edges, bounds: &bounds)
+        groups.sort { ($0.depth, $0.id) < ($1.depth, $1.id) }
+        positions = frames.mapValues { CGPoint(x: $0.midX, y: $0.midY) }
+        size = CGSize(width: max(400, (bounds.values.map(\.maxX).max() ?? 0) + 20), height: max(300, (bounds.values.map(\.maxY).max() ?? 0) + 20))
+    }
+
+    /// Places disconnected groups in rows, tallest first, so unrelated work doesn't stretch one axis.
+    private mutating func packComponents(_ rendered: Set<String>, edges: [WorkEdge], bounds: inout [String: CGRect]) {
         var adjacency: [String: Set<String>] = [:]
         for edge in edges {
             adjacency[edge.from, default: []].insert(edge.to)
@@ -302,9 +293,29 @@ struct WorkGraphLayout {
                 rowHeight = max(rowHeight, component.bounds.height)
             }
         }
-        groups.sort { ($0.depth, $0.id) < ($1.depth, $1.id) }
-        positions = frames.mapValues { CGPoint(x: $0.midX, y: $0.midY) }
-        size = CGSize(width: max(400, (bounds.values.map(\.maxX).max() ?? 0) + 20), height: max(300, (bounds.values.map(\.maxY).max() ?? 0) + 20))
+    }
+
+    /// Source edges between the cards that represent their ends; edges folded into one collapsed region drop out.
+    func renderedEdges(_ edges: [WorkEdge]) -> [WorkEdge] {
+        edges.compactMap { edge in
+            guard let from = representatives[edge.from], let to = representatives[edge.to], from != to else { return nil }
+            return WorkEdge(from: from, to: to, kind: .depends, source: edge.source)
+        }
+    }
+
+    /// Cards a connector between `from` and `to` must route around.
+    func obstacles(between from: String?, and to: String?) -> [CGRect] {
+        frames.filter { $0.key != from && $0.key != to }.map(\.value)
+    }
+
+    /// Maps each sibling block, and every rendered card inside it, to the sibling that owns it.
+    private static func blockOwners(_ members: [String], hierarchy: WorkHierarchy, rendered: Set<String>) -> [String: String] {
+        var owner: [String: String] = [:]
+        for id in members {
+            owner[id] = id
+            for child in hierarchy.descendants(id) where rendered.contains(child) { owner[child] = id }
+        }
+        return owner
     }
 
     private static func score(_ frames: [String: CGRect], edges: [WorkEdge], width: CGFloat, height: CGFloat) -> Double {

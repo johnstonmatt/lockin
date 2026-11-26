@@ -50,7 +50,7 @@ struct WorkEdgeRoute {
             }
             for (a, b) in zip(points, points.dropFirst()) {
                 cost += abs(a.x - b.x) + abs(a.y - b.y)
-                for rect in nearby where Self.intersects(a, b, rect.insetBy(dx: -5, dy: -5)) { cost += 1_000_000 }
+                cost += CGFloat(Self.collisions(a, b, nearby)) * 1_000_000
                 for route in occupied {
                     for (c, d) in zip(route, route.dropFirst()) {
                         if Self.sharesLane(a, b, c, d) { cost += 10_000 }
@@ -79,15 +79,14 @@ struct WorkEdgeRoute {
                           let source = layout.frames[from], let target = layout.frames[to] else { continue }
                     let occupied = edges.filter { $0.id != edge.id }.compactMap { result[$0.id]?.points }
                     let route = WorkEdgeRoute(source: source, target: target,
-                                              obstacles: layout.frames.filter { $0.key != from && $0.key != to }.map(\.value),
-                                              occupied: occupied)
+                                              obstacles: layout.obstacles(between: from, and: to), occupied: occupied)
                     if result[edge.id]?.points != route.points { changed = true }
                     result[edge.id] = route
                 }
                 if !changed { break }
             }
-            let cost = totalCost(edges.compactMap { result[$0.id]?.points }) + obstructionCost(routes: result, edges: edges, layout: layout)
-            if cost < bestCost { bestCost = cost; best = result }
+            let total = cost(result, edges: edges, layout: layout)
+            if total < bestCost { bestCost = total; best = result }
         }
         // A shared source's ports must be considered together; changing one alone can retain a crossing.
         for _ in 0..<3 {
@@ -102,18 +101,11 @@ struct WorkEdgeRoute {
                     let firstY = a.points[0].y, secondY = b.points[0].y
                     a.points[0].y = secondY; a.points[1].y = secondY
                     b.points[0].y = firstY; b.points[1].y = firstY
-                    func clear(_ route: WorkEdgeRoute, edge: WorkEdge) -> Bool {
-                        let from = layout.representatives[edge.from], to = layout.representatives[edge.to]
-                        let obstacles = layout.frames.filter { $0.key != from && $0.key != to }.map(\.value)
-                        return zip(route.points, route.points.dropFirst()).allSatisfy { start, end in
-                            !obstacles.contains { intersects(start, end, $0.insetBy(dx: -5, dy: -5)) }
-                        }
-                    }
-                    guard clear(a, edge: first), clear(b, edge: second) else { continue }
+                    guard collisions(a, edge: first, layout: layout) == 0, collisions(b, edge: second, layout: layout) == 0 else { continue }
                     var candidate = best
                     candidate[first.id] = a; candidate[second.id] = b
-                    let cost = totalCost(edges.compactMap { candidate[$0.id]?.points }) + obstructionCost(routes: candidate, edges: edges, layout: layout)
-                    if cost < bestCost { best = candidate; bestCost = cost; improved = true }
+                    let total = cost(candidate, edges: edges, layout: layout)
+                    if total < bestCost { best = candidate; bestCost = total; improved = true }
                 }
             }
             if !improved { break }
@@ -122,17 +114,23 @@ struct WorkEdgeRoute {
     }
 
     static func obstructionCost(routes: [String: WorkEdgeRoute], edges: [WorkEdge], layout: WorkGraphLayout) -> CGFloat {
-        var cost: CGFloat = 0
-        for edge in edges {
-            guard let route = routes[edge.id] else { continue }
-            let from = layout.representatives[edge.from], to = layout.representatives[edge.to]
-            for (id, frame) in layout.frames where id != from && id != to {
-                for (a, b) in zip(route.points, route.points.dropFirst()) where intersects(a, b, frame.insetBy(dx: -5, dy: -5)) {
-                    cost += 100_000_000
-                }
-            }
-        }
-        return cost
+        let count = edges.reduce(0) { total, edge in total + (routes[edge.id].map { collisions($0, edge: edge, layout: layout) } ?? 0) }
+        return CGFloat(count) * 100_000_000
+    }
+
+    private static func cost(_ routes: [String: WorkEdgeRoute], edges: [WorkEdge], layout: WorkGraphLayout) -> CGFloat {
+        totalCost(edges.compactMap { routes[$0.id]?.points }) + obstructionCost(routes: routes, edges: edges, layout: layout)
+    }
+
+    /// Segment-card overlaps along `route`, against every card except the edge's own ends.
+    private static func collisions(_ route: WorkEdgeRoute, edge: WorkEdge, layout: WorkGraphLayout) -> Int {
+        let obstacles = layout.obstacles(between: layout.representatives[edge.from], and: layout.representatives[edge.to])
+        return zip(route.points, route.points.dropFirst()).reduce(0) { $0 + collisions($1.0, $1.1, obstacles) }
+    }
+
+    /// Connectors keep five points clear of cards they pass.
+    private static func collisions(_ a: CGPoint, _ b: CGPoint, _ obstacles: [CGRect]) -> Int {
+        obstacles.filter { intersects(a, b, $0.insetBy(dx: -5, dy: -5)) }.count
     }
 
     private static func totalCost(_ routes: [[CGPoint]]) -> CGFloat {
