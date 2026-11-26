@@ -242,7 +242,7 @@ import LockInCore
     }
     /// Saves a session's new task list, rolling back if the journal can't be written.
     private func replaceTasks(_ todos: [Todo], inSession index: Int) -> Bool {
-        commitJournal { $0.sessions[index].todos = TaskGraph.removingMissingDependencies(todos) }
+        commitJournal { $0.sessions[index].todos = todos }
     }
     /// Used by Scripts/install-app.sh: pauses a working or break phase, remembers to resume after relaunch, then quits.
     /// A pause you started yourself is left alone. Hardcore Mode refuses, as it does for any quit.

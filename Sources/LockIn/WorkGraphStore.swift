@@ -170,7 +170,7 @@ extension Store {
         commitJournal { journal in
             func keep(_ task: Todo) -> Bool { task.workIdentity != id }
             if let index = journal.openSessionIndex {
-                journal.sessions[index].todos = TaskGraph.removingMissingDependencies(journal.sessions[index].todos.filter(keep))
+                journal.sessions[index].todos.removeAll { !keep($0) }
             } else { journal.setPlan(journal.plannedTasks.filter(keep)) }
         }
     }

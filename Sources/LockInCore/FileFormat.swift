@@ -133,17 +133,15 @@ public struct TaskRecord: Codable, Equatable {
     public var rollIntoNextSession: Bool
     /// The task this one was carried forward from.
     public var sourceTaskId: UUID?
-    public var dependencyIDs: [UUID]?
     public var workNodeID: String?
 
     enum CodingKeys: String, CodingKey {
-        case dependencyIDs = "dependency_ids", workNodeID = "work_node_id"
         case id, title, link, completed, rollIntoNextSession = "roll_into_next_session", sourceTaskId = "source_task_id"
+        case workNodeID = "work_node_id"
     }
 
     init(_ todo: Todo) {
         workNodeID = todo.workNodeID
-        dependencyIDs = todo.dependencyIDs.isEmpty ? nil : todo.dependencyIDs
         id = todo.id; title = todo.title; link = todo.link.isEmpty ? nil : todo.link
         completed = todo.completed; rollIntoNextSession = todo.rollForward; sourceTaskId = todo.sourceTodoID
     }
@@ -151,7 +149,6 @@ public struct TaskRecord: Codable, Equatable {
     var todo: Todo {
         var todo = Todo(title: title)
         todo.workNodeID = workNodeID
-        todo.dependencyIDs = dependencyIDs ?? []
         todo.id = id; todo.link = link ?? ""; todo.completed = completed
         todo.rollForward = rollIntoNextSession; todo.sourceTodoID = sourceTaskId
         return todo
