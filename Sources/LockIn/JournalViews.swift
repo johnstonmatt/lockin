@@ -23,14 +23,8 @@ struct PlannerView: View {
     var body: some View {
         Card {
             Text(Date(), format: .dateTime.weekday(.wide).month(.wide).day()).font(.subheadline).foregroundStyle(.secondary)
-            Text("What are you working on today?").font(.title2)
-            ForEach($store.journal.draft) { $todo in
-                HStack(alignment: .top) {
-                    TodoEditor(todo: $todo)
-                    Button { store.journal.draft.removeAll { $0.id == todo.id } } label: { Image(systemName: "minus.circle") }.buttonStyle(.pointer(.plain)).padding(.top, 12).accessibilityLabel("Remove task")
-                }
-            }
-            Button("Add task", systemImage: "plus") { store.journal.draft.append(Todo()) }
+            Text("Plan your session").font(.title2)
+            SessionWorkSummary()
             Divider()
             HStack {
                 Text("Hours of work")
@@ -43,8 +37,6 @@ struct PlannerView: View {
             Toggle("Hardcore Mode", isOn: $store.lockSession).toggleStyle(.checkbox)
             Button("Start session", systemImage: "play.fill") { store.start() }.buttonStyle(.pointer(.borderedProminent)).controlSize(.large)
         }
-        // Every draft edit, including adding and removing tasks, is saved here.
-        .onChange(of: store.journal.draft) { _, _ in store.persist() }
         .onChange(of: store.journal.hours) { _, value in if value.isFinite { store.persist() } }
     }
 }
