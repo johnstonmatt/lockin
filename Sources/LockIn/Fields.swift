@@ -77,31 +77,9 @@ extension View {
 /// The optional link field used wherever a task is entered.
 struct TaskLinkField: View {
     @Binding var link: String
-    var onSubmit: () -> Void = {}
     var body: some View {
         TextField("Link: Linear, GitHub, Notion… (optional)", text: $link)
             .textFieldStyle(.lockIn(icon: "link", invalid: !Todo.isValidLink(link)))
-            .onSubmit(onSubmit)
-    }
-}
-
-/// A task's title and link fields on one row, followed by `actions` (e.g. Add, or Cancel and Save).
-struct TaskForm<Actions: View>: View {
-    @Binding var title: String
-    @Binding var link: String
-    let placeholder: String
-    var icon: String?
-    let onSubmit: () -> Void
-    @ViewBuilder let actions: Actions
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                TextField(placeholder, text: $title).textFieldStyle(.lockIn(icon: icon)).onSubmit(onSubmit)
-                TaskLinkField(link: $link, onSubmit: onSubmit)
-                actions
-            }
-            LinkRequirementNote(link: link)
-        }
     }
 }
 
@@ -110,16 +88,5 @@ struct LinkRequirementNote: View {
     let link: String
     var body: some View {
         if !Todo.isValidLink(link) { Text(Todo.linkRequirement).font(.caption).foregroundStyle(.red) }
-    }
-}
-
-/// A task's link, named after the service it points to ("Linear ↗", "GitHub ↗", "Notion ↗"), or its site otherwise.
-struct TaskLinkBadge: View {
-    let todo: Todo
-    var body: some View {
-        if let url = todo.linkURL, let label = todo.linkLabel {
-            // An explicit .link style, or the root .pointer(.automatic) would render the link as a bordered button.
-            Link("\(label) ↗", destination: url).buttonStyle(.pointer(.link)).help(todo.link)
-        }
     }
 }
