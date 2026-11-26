@@ -85,6 +85,11 @@ final class SchemaValidator {
                 for (index, item) in array.enumerated() {
                     try check(item, schema: sub, location: "\(location)/items", path: "\(path)[\(index)]", errors: &errors)
                 }
+            case "uniqueItems":
+                guard let array = value as? [Any], rule as? Bool == true else { continue }
+                for (index, item) in array.enumerated() {
+                    if array.prefix(index).contains(where: { Self.equal(item, $0) }) { fail("items must be unique"); break }
+                }
             case "minItems":
                 if let array = value as? [Any], let minimum = rule as? Int, array.count < minimum { fail("needs at least \(minimum) items") }
             case "minimum":

@@ -17,6 +17,7 @@ final class FileFormatTests: XCTestCase {
         var first = Todo(title: "Ship it"); first.link = "https://linear.app/acme/issue/ABC-1"
         first.completed = true; first.rollForward = true; first.sourceTodoID = UUID()
         var log = WorkLog(todos: [first, Todo(title: "Quote: \"x\"\nnext line")], targetSeconds: 3600, now: start)
+        log.todos[1].dependencyIDs = [first.id]
         log.intervals[0].backfilled = true
         log.transition(to: .pause, at: start.addingTimeInterval(600), reason: "Call: urgent")
         log.transition(to: .work, at: start.addingTimeInterval(900))
@@ -52,7 +53,7 @@ final class FileFormatTests: XCTestCase {
         var journal = JournalState()
         let finished = finishedSession(), open = openSession()
         journal.sessions = [finished, open]
-        var planned = Todo(title: "Next"); planned.link = "https://github.com/acme/app/pull/3"
+        var planned = Todo(title: "Next"); planned.workNodeID = "linear:issue-id"; planned.link = "https://github.com/acme/app/pull/3"
         journal.draft = [planned, Todo()]
         journal.hours = 2.5
         journal.pendingReviewID = finished.id

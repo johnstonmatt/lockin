@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/johnstonmatt/lockin/main/Schemas/work-graph-v1.schema.json",
+  "title": "Lock In persistent work graph",
+  "description": "Cached work and source relationships. Session tasks refer to selected entries through work_node_id.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "nodes",
+    "imports",
+    "hidden_node_ids"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/node"
+      }
+    },
+    "imports": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/import"
+      }
+    },
+    "hidden_node_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    }
+  },
+  "$defs": {
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "title",
+        "url",
+        "label",
+        "status",
+        "resolved",
+        "attention",
+        "context"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "local",
+            "linear",
+            "pullRequest"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "resolved": {
+          "type": "boolean"
+        },
+        "attention": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "boolean"
+        },
+        "readiness": {
+          "$ref": "#/$defs/readiness"
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to",
+        "kind",
+        "source"
+      ],
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "contains",
+            "implements",
+            "depends"
+          ]
+        },
+        "source": {
+          "enum": [
+            "linear",
+            "stack",
+            "branch"
+          ]
+        }
+      }
+    },
+    "import": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "url",
+        "nodeIDs",
+        "edges",
+        "warnings",
+        "refreshedAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "nodeIDs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/edge"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "refreshedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "readiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mergeState",
+        "isDraft",
+        "headOID"
+      ],
+      "properties": {
+        "checks": {
+          "type": "string"
+        },
+        "reviewDecision": {
+          "type": "string"
+        },
+        "mergeState": {
+          "type": "string"
+        },
+        "isDraft": {
+          "type": "boolean"
+        },
+        "headOID": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
