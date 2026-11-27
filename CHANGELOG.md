@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.3](https://github.com/johnstonmatt/lockin/compare/v1.2.2...v1.2.3) (2026-11-27)
+
+
+### Bug Fixes
+
+* refresh saved work when adding it to a session ([6116048](https://github.com/johnstonmatt/lockin/commit/6116048b3b9a11aeaca3b6b8eebc523c2827104b))
+
 ## [1.2.2](https://github.com/johnstonmatt/lockin/compare/v1.2.1...v1.2.2) (2026-11-27)
 
 
