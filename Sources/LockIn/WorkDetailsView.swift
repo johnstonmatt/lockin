@@ -47,7 +47,7 @@ struct WorkDetailsView: View {
                     }
                 }
                 if node.context && node.kind == .linear && canInclude {
-                    Button("Import this issue’s tree") { store.importWork(node.url) }.disabled(store.workImporting)
+                    Button("Import this issue’s tree") { store.refreshWork(node.url, addToSession: true) }.disabled(store.workImporting)
                 }
                 Divider()
                 Text("Dependencies").font(.headline)

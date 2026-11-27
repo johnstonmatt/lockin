@@ -25,7 +25,7 @@ final class WorkGraphIntegrationTests: XCTestCase {
         let store = store()
         var saved = imported()
         saved.nodes[0].url = saved.snapshot.url
-        XCTAssertTrue(store.applyWorkImport(saved, addToSession: false, targetSession: nil))
+        try store.applyWorkImport(saved, addToSession: false, targetSession: nil)
         var updated = saved
         updated.nodes[2].title = "Updated feature"
         let dependency = WorkNode(id: "github:app#4", kind: .pullRequest, title: "New dependency")
@@ -35,8 +35,8 @@ final class WorkGraphIntegrationTests: XCTestCase {
         let result = updated
         let importer = WorkImporter(fetchLinear: { _ in result }, enrichGitHub: { $0 })
 
-        try store.addWork(saved.snapshot.url, using: importer)
-        await store.workImportTask?.value
+        let operation = try store.addWork(saved.snapshot.url, using: importer)
+        _ = try await operation.value
 
         XCTAssertEqual(store.sessionWorkIDs, [saved.snapshot.id])
         XCTAssertEqual(store.sessionGraph.nodes.first { $0.id == "github:app#2" }?.title, "Updated feature")
@@ -48,7 +48,7 @@ final class WorkGraphIntegrationTests: XCTestCase {
         let store = store()
         var result = imported()
         result.nodes[2].url = "https://github.com/acme/app/pull/2"
-        XCTAssertTrue(store.applyWorkImport(result, addToSession: true, targetSession: nil))
+        try store.applyWorkImport(result, addToSession: true, targetSession: nil)
         for input in [result.nodes[2].url, result.nodes[2].title] {
             XCTAssertThrowsError(try store.addWork(input)) {
                 XCTAssertTrue($0.localizedDescription.contains("Already included through"))
@@ -67,7 +67,7 @@ final class WorkGraphIntegrationTests: XCTestCase {
     @MainActor func testSelectingParentAbsorbsSelectedChildrenAndRestartKeepsOnlyRoot() throws {
         let store = store()
         let result = imported()
-        XCTAssertTrue(store.applyWorkImport(result, addToSession: false, targetSession: nil))
+        try store.applyWorkImport(result, addToSession: false, targetSession: nil)
         XCTAssertTrue(store.selectWorkForSession(result.nodes[2]))
         XCTAssertTrue(store.selectWorkForSession(result.nodes[0]))
         XCTAssertEqual(store.sessionWorkIDs, [result.snapshot.id])
@@ -75,44 +75,46 @@ final class WorkGraphIntegrationTests: XCTestCase {
         XCTAssertEqual(Set(store.sessionGraph.nodes.map(\.id)), Set(result.nodes.map(\.id)))
     }
 
-    @MainActor func testUnknownImportedChildIsRejectedWhenMembershipRevealsSelectedParent() {
+    @MainActor func testUnknownImportedChildIsRejectedWhenMembershipRevealsSelectedParent() throws {
         let store = store()
         let result = imported()
         XCTAssertTrue(store.selectWorkForSession(result.nodes[0]))
         var childImport = result
         childImport.snapshot.id = result.nodes[2].id
-        XCTAssertFalse(store.applyWorkImport(childImport, addToSession: true, targetSession: nil))
+        XCTAssertThrowsError(try store.applyWorkImport(childImport, addToSession: true, targetSession: nil)) {
+            XCTAssertTrue($0.localizedDescription.contains("Already included through"))
+        }
         XCTAssertEqual(store.sessionWorkIDs, [result.nodes[0].id])
-        XCTAssertTrue(store.workImportMessage?.contains("Already included through") == true)
     }
     @MainActor func testImportSelectsSessionWorkButNotExternalPrerequisitesAndPersists() throws {
         let store = store()
-        XCTAssertTrue(store.applyWorkImport(imported(), addToSession: true, targetSession: nil))
+        try store.applyWorkImport(imported(), addToSession: true, targetSession: nil)
         XCTAssertEqual(store.sessionWorkIDs, ["linear:root"])
         XCTAssertTrue(store.sessionGraph.nodes.contains { $0.id == "github:app#1" })
         XCTAssertFalse(store.sessionWorkIDs.contains("github:app#1"))
         let restored = self.store()
         XCTAssertEqual(restored.workGraph, store.workGraph)
         XCTAssertEqual(restored.sessionWorkIDs, store.sessionWorkIDs)
-        XCTAssertTrue(restored.applyWorkImport(imported(), addToSession: true, targetSession: nil))
+        try restored.applyWorkImport(imported(), addToSession: true, targetSession: nil)
         XCTAssertEqual(restored.graphSessionTasks.count, 1)
     }
-    @MainActor func testRefreshDoesNotReAddRemovedTasksOrChangeLocalCompletion() {
+    @MainActor func testRefreshDoesNotReAddRemovedTasksOrChangeLocalCompletion() throws {
         let store = store()
-        store.applyWorkImport(imported(), addToSession: true, targetSession: nil)
+        try store.applyWorkImport(imported(), addToSession: true, targetSession: nil)
         store.removeWorkFromSession("github:app#2")
         store.setSessionWorkDone("linear:root", done: true)
-        store.applyWorkImport(imported(), addToSession: false, targetSession: nil)
+        try store.applyWorkImport(imported(), addToSession: false, targetSession: nil)
         XCTAssertEqual(store.sessionWorkIDs, ["linear:root"])
         XCTAssertTrue(store.graphSessionTasks[0].completed)
         XCTAssertFalse(store.workGraph.nodes.first { $0.id == "linear:root" }!.resolved)
     }
-    @MainActor func testImportFinishingAfterSessionChangedDoesNotSelectWork() {
+    @MainActor func testImportFinishingAfterSessionChangedDoesNotSelectWork() throws {
         let store = store()
-        store.applyWorkImport(imported(), addToSession: true, targetSession: UUID())
+        XCTAssertThrowsError(try store.applyWorkImport(imported(), addToSession: true, targetSession: UUID())) {
+            XCTAssertTrue($0.localizedDescription.contains("session changed"))
+        }
         XCTAssertTrue(store.graphSessionTasks.isEmpty)
         XCTAssertEqual(store.workGraph.nodes.count, 4)
-        XCTAssertTrue(store.workImportMessage!.contains("session changed"))
     }
     @MainActor func testLegacyTasksKeepGraphIdentityAndLocalEdits() throws {
         let store = store()

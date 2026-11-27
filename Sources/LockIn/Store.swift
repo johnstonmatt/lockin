@@ -12,10 +12,10 @@ import LockInCore
     @Published var lockSession = false
     @Published var journal = JournalState()
     @Published var workGraph = WorkGraph()
-    @Published var workImporting = false
+    var workImporting: Bool { workImportTask != nil }
     @Published var workImportMessage: String?
     var workGraphWritable = true
-    var workImportTask: Task<Void, Never>?
+    @Published var workImportTask: Task<String, Error>?
     var workDirectory: URL { directory }
     @Published var showPause = false
     @Published var showEndSession = false
@@ -198,10 +198,6 @@ import LockInCore
         guard change(&journal.sessions[index], now) else { return false }
         if journal.sessions[index].phase?.isFocused != true { blocker.deactivate() }
         runHook(hook); persist(); return true
-    }
-    /// Adds a task to the running session. Returns false (with a message) if the title is blank or the link is invalid.
-    @discardableResult func addTask(title: String, link: String = "") -> Bool {
-        editTasks { $0.append(Todo().with(title: title, link: link)); return $0.count - 1 }
     }
     /// Renames or relinks a task in the running session. Invalid edits are rejected and leave the task unchanged.
     @discardableResult func updateTask(id: UUID, title: String, link: String) -> Bool {

@@ -33,10 +33,9 @@ final class WorkPresentationTests: XCTestCase {
         let store = Store(directory: directory, runTimer: false, enforceBlocking: false, channel: nil)
         let seed = WorkGraphLayoutTests.fixture()
         let importer = WorkImporter(fetchLinear: { _ in seed }, enrichGitHub: { $0 })
-        store.importWork("ENG-200", using: importer)
+        let operation = try store.importWork("ENG-200", using: importer)
         XCTAssertTrue(store.workImporting)
-        let operation = try XCTUnwrap(store.workImportTask)
-        await operation.value
+        _ = try await operation.value
         XCTAssertFalse(store.workImporting)
         XCTAssertNil(store.workImportTask)
         XCTAssertEqual(Set(store.sessionGraph.nodes.map(\.id)), Set(seed.nodes.map(\.id)))

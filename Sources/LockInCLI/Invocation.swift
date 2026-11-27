@@ -14,22 +14,14 @@ enum Invocation: Equatable {
     case resume
     case finish
     case end(reason: String)
-    case addTask(TaskText)
-    case updateTask(number: Int, TaskText)
+    case addTask(WorkInput)
+    case updateTask(number: Int, WorkInput)
     case setTaskCompleted(number: Int, completed: Bool)
     case deleteTask(number: Int)
     case upgrade
     case backfill(range: String)
     case undoBackfill
     case addEvent(text: String)
-}
-
-/// A task as typed: "title", "link", or "title - link". At least one part is set.
-struct TaskText: Equatable {
-    var title: String?
-    var link: String?
-    /// The title for a new task, read from the link when only a link was given.
-    var newTitle: String { title ?? link.map(Todo.title(fromLink:)) ?? "" }
 }
 
 struct UsageError: Error, Equatable {
@@ -125,12 +117,12 @@ private func parseTask(_ arguments: [String]) throws -> Invocation {
     if let n = Int(action) {
         guard n > 0 else { throw UsageError("Task numbers start at 1. Run lockin tasks to see them.") }
         let text = try single(args, "task \(n)", missing: "Give the new title or link: lockin task \(n) \"<title> - <link>\"")
-        return .updateTask(number: n, try parseTaskText(text))
+        return .updateTask(number: n, try parseWorkInput(text))
     }
     switch action {
     case "add":
         let text = try single(args, "task add", missing: "Give the task a title or link: lockin task add \"<title> - <link>\"")
-        return .addTask(try parseTaskText(text))
+        return .addTask(try parseWorkInput(text))
     case "done": return .setTaskCompleted(number: try number(args, action), completed: true)
     case "undo", "undone": return .setTaskCompleted(number: try number(args, action), completed: false)
     case "rm", "remove", "delete": return .deleteTask(number: try number(args, action))
@@ -151,20 +143,9 @@ private func single(_ args: [String], _ command: String, missing: String) throws
     return text.trimmed
 }
 
-/// "title", "link", or "title - link". Titles may contain " - "; only the last one can come before a link.
-func parseTaskText(_ text: String) throws -> TaskText {
-    func isLink(_ part: String) -> Bool { !part.isBlank && Todo.isValidLink(part) }
-    // A mistyped link is an error rather than quietly becoming part of the title.
-    func looksLikeLink(_ part: String) -> Bool { ["http://", "https://"].contains { part.lowercased().hasPrefix($0) } }
-    let text = text.trimmed
-    if isLink(text) { return TaskText(link: text) }
-    if let separator = text.range(of: " - ", options: .backwards) {
-        let title = String(text[..<separator.lowerBound]).trimmed, link = String(text[separator.upperBound...]).trimmed
-        if isLink(link) { return TaskText(title: title.isEmpty ? nil : title, link: link) }
-        if looksLikeLink(link) { throw UsageError(Todo.linkRequirement) }
-    }
-    if looksLikeLink(text) { throw UsageError(Todo.linkRequirement) }
-    return TaskText(title: text)
+private func parseWorkInput(_ text: String) throws -> WorkInput {
+    do { return try WorkInput(text) }
+    catch { throw UsageError(error.localizedDescription) }
 }
 
 private func number(_ args: [String], _ action: String) throws -> Int {

@@ -135,19 +135,18 @@ final class SessionFlowTests: XCTestCase {
     }
     @MainActor func testTasksCanBeAddedMidSession() throws {
         let store = makeStore()
-        XCTAssertFalse(store.addTask(title: "No session yet"))
         store.journal.draft = [Todo(title: "Planned")]
         store.start()
         let id = try XCTUnwrap(store.workLog?.id)
-        XCTAssertFalse(store.addTask(title: "   "))
-        XCTAssertFalse(store.addTask(title: "Bad link", link: "notaurl"))
-        XCTAssertTrue(store.addTask(title: "  Surprise bug  ", link: "https://linear.app/acme/issue/ABC-1"))
+        XCTAssertThrowsError(try store.addWork("   "))
+        XCTAssertThrowsError(try store.addWork(WorkInput(title: "Bad link", link: "notaurl")))
+        try store.addWork("  Surprise bug - https://example.com/task  ")
         store.pause(reason: "Lunch")
-        XCTAssertTrue(store.addTask(title: "Added while paused"))
+        try store.addWork("Added while paused")
         XCTAssertEqual(store.workLog?.todos.map(\.title), ["Planned", "Surprise bug", "Added while paused"])
         let saved = try sessionFile(id)
         XCTAssertEqual(saved.tasks[1].title, "Surprise bug")
-        XCTAssertEqual(saved.tasks[1].link, "https://linear.app/acme/issue/ABC-1")
+        XCTAssertEqual(saved.tasks[1].link, "https://example.com/task")
         let restored = makeStore()
         XCTAssertEqual(restored.workLog?.todos.count, 3)
     }

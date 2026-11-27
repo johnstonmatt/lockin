@@ -111,7 +111,7 @@ lockin end "Starting a new day"          # End early with a reason
 lockin history -n 14
 ```
 
-Tasks accept `"title"`, `"link"`, or `"title - link"`. A link alone gets a title derived from its URL without a network request. CLI task links do not import a dependency tree; use **Add work** in the app for imports.
+Both **Add work** and `task add` accept `"title"`, `"link"`, or `"title - link"`. Like **Add work** in the app, `task add` imports Linear issues (including issue IDs) and GitHub PRs with their dependencies, and refreshes saved imports when adding them to a session. It waits for the import result and reports failures. Other links stay local; an optional title names the local task.
 
 `status`, `tasks`, and `history` read `~/.lockin` directly and work while the app is closed. Session changes go through the app, which launches in the background if needed. Sessions can start without tasks. The same session rules apply: starting requires no pending review, breaks must be earned, and pauses and early ends need a reason. Reviews happen in the app.
 

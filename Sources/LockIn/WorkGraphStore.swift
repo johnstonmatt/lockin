@@ -2,15 +2,24 @@ import Foundation
 import LockInCore
 
 extension Store {
-    func addWork(_ input: String, using importer: WorkImporter = WorkConnections.importer) throws {
-        let text = input.trimmed
-        guard !text.isEmpty else { throw WorkImportError("Enter a URL or task name.") }
+    @discardableResult
+    func addWork(_ text: String, using importer: WorkImporter = WorkConnections.importer) throws -> WorkOperation {
+        try addWork(WorkInput(text), using: importer)
+    }
+
+    @discardableResult
+    func addWork(_ input: WorkInput, using importer: WorkImporter = WorkConnections.importer) throws -> WorkOperation {
+        try input.validate()
         guard workGraphWritable, !workImporting else { throw WorkImportError("Work can't be added right now. Try again shortly.") }
-        let identity = WorkInput.linkIdentity(text)
+        guard workLog != nil || journal.pendingReviewID == nil else {
+            throw WorkImportError("Review your last session in Lock In before planning the next one.")
+        }
+        let identity = input.identity
+        let saved = WorkOperation.saved("Added “\(input.newTitle)” to \(workLog == nil ? "the next session's plan" : "this session").")
         // Links match by identity; plain task names match case-insensitively.
         func matches(title: String, link: String) -> Bool {
             if let identity { return WorkInput.linkIdentity(link) == identity }
-            return title.trimmed.caseInsensitiveCompare(text) == .orderedSame
+            return title.trimmed.caseInsensitiveCompare(input.newTitle) == .orderedSame
         }
         let covered = workGraph.descendants(of: sessionWorkIDs)
         let selected = sessionGraph.nodes.filter { covered.contains($0.id) }
@@ -27,84 +36,35 @@ extension Store {
                 if let ancestor = workGraph.selectedAncestor(of: existing.id, among: sessionWorkIDs) {
                     throw WorkImportError(parentEntryMessage(ancestor))
                 }
-                guard selectWorkForSession(existing) else { throw WorkImportError(workImportMessage ?? "Couldn't save this work to the session.") }
-                if LinearGraphClient.issueIdentifier(from: text) != nil || PullRequestReference(url: text) != nil {
-                    importWork(text, addToSession: false, using: importer)
+                try saveWorkSelection([existing])
+                if let url = input.importURL {
+                    return try importWork(url, addToSession: false, using: importer)
                 }
-                return
+                return saved
             }
-            if LinearGraphClient.issueIdentifier(from: text) != nil || PullRequestReference(url: text) != nil {
-                importWork(text, using: importer)
-                return
-            }
-        } else if text.contains("://") || text.lowercased().hasPrefix("www.") {
-            throw WorkImportError(Todo.linkRequirement)
+            if let url = input.importURL { return try importWork(url, using: importer) }
         }
-        let node = WorkNode(id: "local:\(UUID().uuidString)", kind: .local, title: text, url: identity == nil ? "" : text)
-        guard editWorkGraph({ $0.nodes.append(node) }), selectWorkForSession(node) else {
-            throw WorkImportError("Couldn't save this work to the session.")
-        }
+        let node = WorkNode(id: "local:\(UUID().uuidString)", kind: .local, title: input.newTitle, url: identity == nil ? "" : input.source)
+        var graph = workGraph
+        graph.nodes.append(node)
+        try saveWorkGraph(graph)
+        try saveWorkSelection([node])
+        return saved
+    }
+
+    func saveWorkGraph(_ graph: WorkGraph) throws {
+        guard workGraphWritable else { throw WorkImportError("Work can't be saved right now.") }
+        do { try WorkGraphStorage.save(graph, in: workDirectory) }
+        catch { throw WorkImportError("Couldn't save work: \(error.localizedDescription)") }
+        workGraph = graph
     }
 
     @discardableResult
     func editWorkGraph(_ edit: (inout WorkGraph) -> Void) -> Bool {
-        guard workGraphWritable else { return false }
         var graph = workGraph
         edit(&graph)
-        do {
-            try WorkGraphStorage.save(graph, in: workDirectory)
-            workGraph = graph
-            return true
-        } catch {
-            workImportMessage = "Couldn't save work: \(error.localizedDescription)"
-            return false
-        }
-    }
-
-    func importWork(_ input: String, addToSession: Bool = true, using importer: WorkImporter = WorkConnections.importer) {
-        guard !workImporting, workGraphWritable else { return }
-        let targetSession = workLog?.id
-        workImporting = true
-        workImportMessage = "Loading work and dependencies…"
-        workImportTask = Task { [weak self] in
-            guard let self else { return }
-            defer { self.workImporting = false; self.workImportTask = nil }
-            do {
-                let result = try await importer.fetch(input, preserving: Set(self.workGraph.imports.map(\.id)))
-                self.applyWorkImport(result, addToSession: addToSession, targetSession: targetSession)
-            } catch is CancellationError {
-                self.workImportMessage = "Import canceled. Saved work is unchanged."
-            } catch {
-                self.workImportMessage = error.localizedDescription
-            }
-        }
-    }
-
-    @discardableResult
-    func applyWorkImport(_ result: WorkImportResult, addToSession: Bool, targetSession: UUID?) -> Bool {
-        let addsToSession = addToSession && workLog?.id == targetSession
-        var candidate = workGraph
-        candidate.merge(result)
-        if addsToSession, let ancestor = candidate.selectedAncestor(of: result.snapshot.id, among: sessionWorkIDs) {
-            workImportMessage = parentEntryMessage(ancestor)
-            return false
-        }
-        guard editWorkGraph({ $0.merge(result) }) else { return false }
-        if addsToSession {
-            let selected = result.nodes.filter { $0.id == result.snapshot.id }
-            guard selectWorkForSession(selected) else {
-                workImportMessage = "Graph saved, but session tasks couldn't be saved. Add the saved work again to retry."
-                return false
-            }
-        }
-        normalizeSessionEntries()
-        workImportMessage = result.snapshot.warnings.isEmpty
-            ? "Imported \(result.nodes.count) work items."
-            : result.snapshot.warnings.joined(separator: "\n")
-        if addToSession && !addsToSession {
-            workImportMessage = "Graph saved. The session changed during import; add its URL again to include it."
-        }
-        return true
+        do { try saveWorkGraph(graph); return true }
+        catch { workImportMessage = error.localizedDescription; return false }
     }
 
     func renameSessionWork(_ id: String, title: String, link: String) {
@@ -133,15 +93,16 @@ extension Store {
         graphSessionTasks.first { $0.workIdentity == id }?.completed ?? false
     }
 
-    private func parentEntryMessage(_ id: String) -> String {
+    func parentEntryMessage(_ id: String) -> String {
         let parent = workGraph.nodes.first { $0.id == id }
         return "Already included through \(parent?.label == "Task" ? parent?.title ?? id : parent?.label ?? id)."
     }
 
-    func normalizeSessionEntries() {
+    @discardableResult
+    func normalizeSessionEntries() -> Bool {
         var normalized = journal
         normalized.normalizeWorkEntries(using: workGraph)
-        if normalized != journal { commitJournal { $0 = normalized } }
+        return normalized == journal || commitJournal { $0 = normalized }
     }
 
     @discardableResult
@@ -149,10 +110,14 @@ extension Store {
 
     @discardableResult
     func selectWorkForSession(_ nodes: [WorkNode]) -> Bool {
+        do { try saveWorkSelection(nodes); return true }
+        catch { workImportMessage = error.localizedDescription; return false }
+    }
+
+    func saveWorkSelection(_ nodes: [WorkNode]) throws {
         for node in nodes {
             if let ancestor = workGraph.selectedAncestor(of: node.id, among: sessionWorkIDs) {
-                workImportMessage = parentEntryMessage(ancestor)
-                return false
+                throw WorkImportError(parentEntryMessage(ancestor))
             }
         }
         var selected = sessionWorkIDs
@@ -162,10 +127,10 @@ extension Store {
             todo.link = node.url; todo.workNodeID = node.id
             return todo
         }
-        return commitJournal { journal in
+        guard commitJournal({ journal in
             if let index = journal.openSessionIndex { journal.sessions[index].todos += additions }
             else { journal.setPlan(journal.plannedTasks + additions) }
-        }
+        }) else { throw WorkImportError(message ?? "Couldn't save this work to the session.") }
     }
 
     func removeWorkFromSession(_ id: String) {

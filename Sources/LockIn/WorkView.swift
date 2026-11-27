@@ -86,7 +86,7 @@ struct WorkView: View {
                 Menu {
                     ForEach(relevantImports) { imported in
                         Button(store.workGraph.nodes.first { $0.id == imported.id }?.label ?? imported.url) {
-                            store.importWork(imported.url, addToSession: false)
+                            store.refreshWork(imported.url)
                         }
                     }
                 } label: { Label("Refresh", systemImage: "arrow.clockwise") }

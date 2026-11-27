@@ -15,8 +15,8 @@ final class ParseTests: XCTestCase {
         XCTAssertEqual(try parse(["history", "-n", "3"]), .history(count: 3))
         XCTAssertEqual(try parse(["history"]), .history(count: 7))
         XCTAssertEqual(try parse(["upgrade"]), .upgrade)
-        XCTAssertEqual(try parse(["task", "add", "Ship it"]), .addTask(TaskText(title: "Ship it")))
-        XCTAssertEqual(try parse(["task", "2", "https://github.com/a/b/pull/3"]), .updateTask(number: 2, TaskText(link: "https://github.com/a/b/pull/3")))
+        XCTAssertEqual(try parse(["task", "add", "Ship it"]), .addTask(WorkInput(title: "Ship it")))
+        XCTAssertEqual(try parse(["task", "2", "https://github.com/a/b/pull/3"]), .updateTask(number: 2, WorkInput(link: "https://github.com/a/b/pull/3")))
         XCTAssertEqual(try parse(["task", "done", "2"]), .setTaskCompleted(number: 2, completed: true))
         XCTAssertEqual(try parse(["task", "undo", "2"]), .setTaskCompleted(number: 2, completed: false))
         XCTAssertEqual(try parse(["task", "rm", "1"]), .deleteTask(number: 1))
@@ -41,16 +41,6 @@ final class ParseTests: XCTestCase {
                             (["task", "3", "New", "name"], #"lockin task 3 "New name""#)] {
             XCTAssertThrowsError(try parse(args)) { XCTAssertTrue(($0 as? UsageError)?.message.contains(fix) == true, "\($0)") }
         }
-    }
-    func testTaskText() throws {
-        XCTAssertEqual(try parseTaskText("Write docs"), TaskText(title: "Write docs"))
-        XCTAssertEqual(try parseTaskText("https://linear.app/s/issue/FUNC-1/fix-it"), TaskText(link: "https://linear.app/s/issue/FUNC-1/fix-it"))
-        XCTAssertEqual(try parseTaskText("Fix it - https://linear.app/s/issue/FUNC-1"), TaskText(title: "Fix it", link: "https://linear.app/s/issue/FUNC-1"))
-        XCTAssertEqual(try parseTaskText("Ops - rotate keys - https://x.com/a"), TaskText(title: "Ops - rotate keys", link: "https://x.com/a"),
-                       "titles can contain the separator")
-        XCTAssertEqual(try parseTaskText("Before - after"), TaskText(title: "Before - after"))
-        XCTAssertThrowsError(try parseTaskText("Fix it - https://"), "a mistyped link isn't folded into the title")
-        XCTAssertEqual(TaskText(link: "https://linear.app/s/issue/FUNC-1/fix-it").newTitle, "FUNC-1 fix it")
     }
     func testVersionOrdering() {
         XCTAssertEqual(Upgrade.compare("0.10.0", "0.9.1"), .orderedDescending)
