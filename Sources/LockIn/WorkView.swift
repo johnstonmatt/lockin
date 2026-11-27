@@ -85,7 +85,8 @@ struct WorkView: View {
                     .help("Connections").accessibilityLabel("Connections")
                 Menu {
                     ForEach(relevantImports) { imported in
-                        Button(store.workGraph.nodes.first { $0.id == imported.id }?.label ?? imported.url) {
+                        let node = store.workGraph.nodes.first { $0.id == imported.id }
+                        Button(node.map { "\($0.label) · \($0.title)" } ?? imported.url) {
                             store.refreshWork(imported.url)
                         }
                     }
