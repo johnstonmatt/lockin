@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.2](https://github.com/johnstonmatt/lockin/compare/v1.2.1...v1.2.2) (2026-11-27)
+
+
+### Bug Fixes
+
+* allow sessions to start before choosing work ([6997d66](https://github.com/johnstonmatt/lockin/commit/6997d664b5d0984fb11eac3a60fe8fe2bea04f11))
+
 ## [1.2.1](https://github.com/johnstonmatt/lockin/compare/v1.2.0...v1.2.1) (2026-11-26)
 
 
