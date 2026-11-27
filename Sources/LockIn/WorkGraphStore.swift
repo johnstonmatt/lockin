@@ -2,7 +2,7 @@ import Foundation
 import LockInCore
 
 extension Store {
-    func addWork(_ input: String) throws {
+    func addWork(_ input: String, using importer: WorkImporter = WorkConnections.importer) throws {
         let text = input.trimmed
         guard !text.isEmpty else { throw WorkImportError("Enter a URL or task name.") }
         guard workGraphWritable, !workImporting else { throw WorkImportError("Work can't be added right now. Try again shortly.") }
@@ -28,10 +28,13 @@ extension Store {
                     throw WorkImportError(parentEntryMessage(ancestor))
                 }
                 guard selectWorkForSession(existing) else { throw WorkImportError(workImportMessage ?? "Couldn't save this work to the session.") }
+                if LinearGraphClient.issueIdentifier(from: text) != nil || PullRequestReference(url: text) != nil {
+                    importWork(text, addToSession: false, using: importer)
+                }
                 return
             }
             if LinearGraphClient.issueIdentifier(from: text) != nil || PullRequestReference(url: text) != nil {
-                importWork(text)
+                importWork(text, using: importer)
                 return
             }
         } else if text.contains("://") || text.lowercased().hasPrefix("www.") {
