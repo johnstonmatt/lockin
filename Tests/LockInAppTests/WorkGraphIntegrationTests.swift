@@ -21,6 +21,29 @@ final class WorkGraphIntegrationTests: XCTestCase {
                 WorkEdge(from: issue.id, to: merged.id, kind: .implements, source: .linear)
             ], refreshedAt: Date(timeIntervalSince1970: 1700000000)))
     }
+    @MainActor func testAddingSavedWorkRefreshesItsDependencies() async throws {
+        let store = store()
+        var saved = imported()
+        saved.nodes[0].url = saved.snapshot.url
+        XCTAssertTrue(store.applyWorkImport(saved, addToSession: false, targetSession: nil))
+        var updated = saved
+        updated.nodes[2].title = "Updated feature"
+        let dependency = WorkNode(id: "github:app#4", kind: .pullRequest, title: "New dependency")
+        updated.nodes.append(dependency)
+        updated.snapshot.nodeIDs.append(dependency.id)
+        updated.snapshot.edges.append(WorkEdge(from: saved.snapshot.id, to: dependency.id, kind: .implements, source: .linear))
+        let result = updated
+        let importer = WorkImporter(fetchLinear: { _ in result }, enrichGitHub: { $0 })
+
+        try store.addWork(saved.snapshot.url, using: importer)
+        await store.workImportTask?.value
+
+        XCTAssertEqual(store.sessionWorkIDs, [saved.snapshot.id])
+        XCTAssertEqual(store.sessionGraph.nodes.first { $0.id == "github:app#2" }?.title, "Updated feature")
+        XCTAssertTrue(store.sessionGraph.nodes.contains { $0.id == dependency.id })
+        XCTAssertEqual(self.store().workGraph, store.workGraph)
+    }
+
     @MainActor func testDescendantsRejectAsDuplicatesAndCannotBeEdited() throws {
         let store = store()
         var result = imported()
