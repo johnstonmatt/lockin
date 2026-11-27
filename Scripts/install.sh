@@ -15,7 +15,8 @@ BUNDLE_ID="app.lockin.mac"
 SOURCE="${1:?Usage: install.sh <path to Lock In.app>}"
 DEST="/Applications/$APP_NAME.app"
 
-is_running() { pgrep -xq LockIn; }
+# In-app updates launch this installer as a descendant of the running app.
+is_running() { pgrep -axq LockIn; }
 wait_for_quit() { for _ in {1..20}; do is_running || return 0; sleep 0.5; done; ! is_running; }
 
 was_running=false
