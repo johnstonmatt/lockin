@@ -16,8 +16,7 @@ struct Snapshot {
     var reviewPending: Bool { journal.pendingReviewID != nil }
     /// The tasks `lockin tasks` numbers: the running session's, or the next session's plan.
     var tasks: [Todo] { journal.currentWork }
-    /// Hardcore Mode holds the running session until its target is reached, as the app's `Store.locked` does.
-    var hardcoreActive: Bool { locked && session?.targetReached(at: asOf) == false }
+    var hardcoreActive: Bool { session != nil && WorkLog.hardcoreHolds(locked: locked, session: session, at: asOf) }
 
     func task(number: Int) throws -> Todo {
         guard tasks.indices.contains(number - 1) else {

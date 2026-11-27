@@ -54,17 +54,24 @@ extension JournalState {
             let first = sessions[touched[0]], next = sessions[touched[1]]
             throw BackfillError.spansSessions(firstEnds: first.endedAt ?? now, nextStarts: next.startedAt)
         }
-        guard let index = touched.first else {
-            var log = WorkLog(todos: [], targetSeconds: end.timeIntervalSince(start), now: start)
-            log.intervals[0].end = end
-            log.intervals[0].backfilled = true
-            log.endedAt = end; log.finishedNaturally = true; log.reviewed = true
-            sessions.insert(log, at: sessions.firstIndex { $0.startedAt > start } ?? sessions.endIndex)
-            lastBackfill = BackfillRecord(sessionID: log.id, createdSession: true, previousStartedAt: start, previousIntervals: [], at: now)
-            return BackfillResult(addedSeconds: end.timeIntervalSince(start), alreadyRecordedSeconds: 0,
-                                  sessionStartedAt: start, createdSession: true, movedStart: false)
-        }
+        guard let index = touched.first else { return addSession(from: start, to: end, now: now) }
+        return try fillPauses(inSession: index, from: start, to: end, now: now)
+    }
 
+    /// A finished, reviewed session of backfilled work, for a range outside every session.
+    private mutating func addSession(from start: Date, to end: Date, now: Date) -> BackfillResult {
+        var log = WorkLog(todos: [], targetSeconds: end.timeIntervalSince(start), now: start)
+        log.intervals[0].end = end
+        log.intervals[0].backfilled = true
+        log.endedAt = end; log.finishedNaturally = true; log.reviewed = true
+        sessions.insert(log, at: sessions.firstIndex { $0.startedAt > start } ?? sessions.endIndex)
+        lastBackfill = BackfillRecord(sessionID: log.id, createdSession: true, previousStartedAt: start, previousIntervals: [], at: now)
+        return BackfillResult(addedSeconds: end.timeIntervalSince(start), alreadyRecordedSeconds: 0,
+                              sessionStartedAt: start, createdSession: true, movedStart: false)
+    }
+
+    /// Records the range as work in session `index`: before its start, and in place of its pauses.
+    private mutating func fillPauses(inSession index: Int, from start: Date, to end: Date, now: Date) throws -> BackfillResult {
         var log = sessions[index]
         if let sessionEnd = log.endedAt, end > sessionEnd { throw BackfillError.afterEnd(sessionEnd: sessionEnd) }
         let previous = log

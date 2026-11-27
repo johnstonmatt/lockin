@@ -2,7 +2,7 @@
 
 A native macOS app for planning focused work, blocking distractions, and keeping a record of your day. Set a work target, choose your tasks, and earn break time as you go. Bring in Linear issues and GitHub pull requests to see the dependencies behind your work.
 
-Built with SwiftUI. Requires macOS 14 or later. Sessions and settings stay in local JSON files; no Lock In account, server, or analytics. Linear and GitHub connections are optional.
+Built with SwiftUI. Requires an Apple silicon Mac with macOS 14 or later. Sessions and settings stay in local JSON files; no Lock In account, server, or analytics. Linear and GitHub connections are optional.
 
 ## Get started
 
@@ -15,7 +15,7 @@ To build and install from source, use a Swift 6 toolchain (included with a compa
 open "/Applications/Lock In.app"
 ```
 
-The installer also links `lockin` into `~/.local/bin`. Add that directory to your `PATH`, or set `LOCKIN_BIN_DIR` when installing to choose another location. For a downloaded app, use **Settings → Command line → Install CLI**.
+The installer also links `lockin` into `~/.local/bin`; add that directory to your `PATH`. Updates refresh the link, but never replace a `~/.local/bin/lockin` that isn't one. For a downloaded app, use **Settings → Command line → Install CLI**.
 
 For your first session:
 

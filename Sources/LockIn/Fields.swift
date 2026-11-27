@@ -2,8 +2,6 @@ import SwiftUI
 import AppKit
 import LockInCore
 
-let accent = Color(red: 0.25, green: 0.68, blue: 0.53)
-
 /// Shared chrome for every text input: a soft fill that brightens on focus, a hairline border,
 /// an accent ring while editing and a red ring when the content is invalid.
 private struct FieldChrome<Content: View>: View {

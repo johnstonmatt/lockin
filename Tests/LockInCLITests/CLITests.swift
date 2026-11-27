@@ -1,26 +1,27 @@
 import XCTest
 import LockInCore
 @testable import LockInCLI
+import LockInTestSupport
 
 final class ParseTests: XCTestCase {
     func testCommands() throws {
         XCTAssertEqual(try parse([]), .status(json: false))
         XCTAssertEqual(try parse(["open"]), .open)
         XCTAssertEqual(try parse(["status", "--json"]), .status(json: true))
-        XCTAssertEqual(try parse(["start"]), .start(hours: nil))
-        XCTAssertEqual(try parse(["start", "--hours", "6.5"]), .start(hours: 6.5))
-        XCTAssertEqual(try parse(["pause", "lunch with Sam"]), .pause(reason: "lunch with Sam"))
-        XCTAssertEqual(try parse(["end", "Starting a new day"]), .end(reason: "Starting a new day"))
+        XCTAssertEqual(try parse(["start"]), .remote(.start(hours: nil)))
+        XCTAssertEqual(try parse(["start", "--hours", "6.5"]), .remote(.start(hours: 6.5)))
+        XCTAssertEqual(try parse(["pause", "lunch with Sam"]), .remote(.pause(reason: "lunch with Sam")))
+        XCTAssertEqual(try parse(["end", "Starting a new day"]), .remote(.end(reason: "Starting a new day")))
         XCTAssertEqual(try parse(["break"]), .takeBreak)
         XCTAssertEqual(try parse(["history", "-n", "3"]), .history(count: 3))
         XCTAssertEqual(try parse(["history"]), .history(count: 7))
         XCTAssertEqual(try parse(["upgrade"]), .upgrade)
-        XCTAssertEqual(try parse(["task", "add", "Ship it"]), .addTask(WorkInput(title: "Ship it")))
+        XCTAssertEqual(try parse(["task", "add", "Ship it"]), .remote(.addTask(WorkInput(title: "Ship it"))))
         XCTAssertEqual(try parse(["task", "2", "https://github.com/a/b/pull/3"]), .updateTask(number: 2, WorkInput(link: "https://github.com/a/b/pull/3")))
         XCTAssertEqual(try parse(["task", "done", "2"]), .setTaskCompleted(number: 2, completed: true))
         XCTAssertEqual(try parse(["task", "undo", "2"]), .setTaskCompleted(number: 2, completed: false))
         XCTAssertEqual(try parse(["task", "rm", "1"]), .deleteTask(number: 1))
-        XCTAssertEqual(try parse(["event", "add", "Deployed to staging"]), .addEvent(text: "Deployed to staging"))
+        XCTAssertEqual(try parse(["event", "add", "Deployed to staging"]), .remote(.addEvent(text: "Deployed to staging")))
         XCTAssertThrowsError(try parse(["event"]))
         XCTAssertThrowsError(try parse(["event", "add"]))
         XCTAssertThrowsError(try parse(["event", "add", "two", "words"]), "text with spaces must be quoted")
@@ -189,7 +190,7 @@ final class BackfillRangeTests: XCTestCase {
     }
     func testParse() throws {
         XCTAssertEqual(try parse(["backfill", "9:00-10:30"]), .backfill(range: "9:00-10:30"))
-        XCTAssertEqual(try parse(["backfill", "--undo"]), .undoBackfill)
+        XCTAssertEqual(try parse(["backfill", "--undo"]), .remote(.undoBackfill))
         XCTAssertThrowsError(try parse(["backfill"]))
         XCTAssertThrowsError(try parse(["backfill", "--undo", "9:00-10:00"]))
     }

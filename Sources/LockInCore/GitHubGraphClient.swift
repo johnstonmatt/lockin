@@ -20,7 +20,7 @@ public struct GitHubGraphClient: Sendable {
             guard let reference else { return nil }
             let merged = merged_at != nil
             return WorkNode(id: reference.nodeID, kind: .pullRequest, title: title, url: reference.url,
-                label: reference.key, status: merged ? "Merged" : state == "closed" ? "Closed" : draft == true ? "Draft" : "Open",
+                label: reference.key, status: (merged ? WorkNode.PullRequestState.merged : state == "closed" ? .closed : draft == true ? .draft : .open).rawValue,
                 resolved: merged, attention: state == "closed" && !merged)
         }
     }
@@ -28,24 +28,83 @@ public struct GitHubGraphClient: Sendable {
         struct Entry: Decodable { var number: Int }
         var pull_requests: [Entry]
     }
-    private func get<T: Decodable>(_ type: T.Type, _ route: String) async throws -> T {
-        try JSONDecoder().decode(type, from: await request(route))
+    /// The read-only REST endpoints the import uses, as `gh api` paths.
+    enum Route {
+        case pullRequest(PullRequestReference)
+        case stack(repository: String, number: Int)
+        case repository(String)
+        /// Pull requests whose head is `branch` in the repository's owner, one page of 100.
+        case pullsFrom(repository: String, branch: String, page: Int)
+
+        var path: String {
+            switch self {
+            case .pullRequest(let reference): return "repos/\(reference.repository)/pulls/\(reference.number)"
+            case .stack(let repository, let number): return "repos/\(repository)/stacks/\(number)"
+            case .repository(let repository): return "repos/\(repository)"
+            case .pullsFrom(let repository, let branch, let page):
+                let owner = repository.split(separator: "/").first.map(String.init) ?? ""
+                var query = URLComponents()
+                query.queryItems = [URLQueryItem(name: "state", value: "all"), URLQueryItem(name: "head", value: "\(owner):\(branch)"),
+                                    URLQueryItem(name: "per_page", value: "100"), URLQueryItem(name: "page", value: String(page))]
+                return "repos/\(repository)/pulls?\(query.percentEncodedQuery ?? "")"
+            }
+        }
     }
+
+    private func get<T: Decodable>(_ type: T.Type, _ route: Route) async throws -> T {
+        try JSONDecoder().decode(type, from: await request(route.path))
+    }
+
+    /// What a PR found to come before it.
+    private struct Upstream {
+        var references: [PullRequestReference] = []
+        var edges: [WorkEdge] = []
+        var warning: String?
+    }
+
+    /// A stack's PRs in order, read once per stack.
+    private func stackUpstream(_ membership: StackMembership, repository: String, seen stacks: inout Set<String>) async throws -> Upstream {
+        guard stacks.insert("\(repository.lowercased())#\(membership.number)").inserted else { return Upstream() }
+        let stack = try await get(Stack.self, .stack(repository: repository, number: membership.number))
+        guard stack.pull_requests.count == membership.size else { throw LockInError("GitHub returned an incomplete stack. Try refreshing again.") }
+        let refs = stack.pull_requests.compactMap { PullRequestReference(url: "https://github.com/\(repository)/pull/\($0.number)") }
+        return Upstream(references: refs, edges: zip(refs, refs.dropFirst()).map {
+            WorkEdge(from: $0.nodeID, to: $1.nodeID, kind: .depends, source: .stack)
+        })
+    }
+
+    /// The one PR whose head is this PR's base branch, unless the base is the repository's default branch.
+    private func branchUpstream(_ pr: PR, _ reference: PullRequestReference, node: WorkNode,
+                                defaultBranches: inout [String: String]) async throws -> Upstream {
+        let repository = reference.repository.lowercased()
+        let defaultBranch: String
+        if let cached = defaultBranches[repository] {
+            defaultBranch = cached
+        } else {
+            defaultBranch = try await get(RepositoryDetails.self, .repository(reference.repository)).default_branch
+            defaultBranches[repository] = defaultBranch
+        }
+        // Integration branches are boundaries, not upstream feature PRs.
+        guard pr.base.ref != defaultBranch else { return Upstream() }
+        let candidates = try await branchCandidates(for: pr, repository: reference.repository)
+        if candidates.count == 1, let upstream = candidates[0].reference {
+            return Upstream(references: [upstream], edges: [WorkEdge(from: upstream.nodeID, to: node.id, kind: .depends, source: .branch)])
+        }
+        if candidates.count > 1 { return Upstream(warning: "Multiple PRs match the base branch of \(reference.key); no ordering was inferred.") }
+        return Upstream()
+    }
+
     private func branchCandidates(for pr: PR, repository: String) async throws -> [PR] {
-        let owner = repository.split(separator: "/").first.map(String.init) ?? ""
-        var components = URLComponents()
-        components.queryItems = [URLQueryItem(name: "state", value: "all"), URLQueryItem(name: "head", value: "\(owner):\(pr.base.ref)"),
-                                 URLQueryItem(name: "per_page", value: "100")]
         var found: [PR] = []
         for page in 1...20 {
-            let batch = try await get([PR].self, "repos/\(repository)/pulls?\(components.percentEncodedQuery!)&page=\(page)")
+            let batch = try await get([PR].self, .pullsFrom(repository: repository, branch: pr.base.ref, page: page))
             found += batch.filter {
                 $0.number != pr.number && $0.head.repo?.full_name.lowercased() == pr.base.repo?.full_name.lowercased()
                     && $0.head.ref == pr.base.ref && ($0.state == "open" || $0.merged_at != nil)
             }
             if batch.count < 100 { return found }
         }
-        throw WorkImportError("Too many PRs match the base branch to infer an order.")
+        throw LockInError("Too many PRs match the base branch to infer an order.")
     }
 
     public func enrich(_ imported: WorkImportResult) async throws -> WorkImportResult {
@@ -60,14 +119,14 @@ public struct GitHubGraphClient: Sendable {
             try Task.checkCancellation()
             let reference = queue.removeFirst()
             guard visited.insert(reference.key).inserted else { continue }
-            guard visited.count <= 400 else { throw WorkImportError("This import exceeds 400 PRs. Import a smaller tree.") }
+            guard visited.count <= 400 else { throw LockInError("This import exceeds 400 PRs. Import a smaller tree.") }
             let pr: PR
-            do { pr = try await get(PR.self, "repos/\(reference.repository)/pulls/\(reference.number)") }
+            do { pr = try await get(PR.self, .pullRequest(reference)) }
             catch {
                 if error is CancellationError { throw error }
-                throw WorkImportError("Couldn't read \(reference.key). Check GitHub sign-in and repository access. The saved graph is unchanged.")
+                throw LockInError("Couldn't read \(reference.key). Check GitHub sign-in and repository access. The saved graph is unchanged.")
             }
-            guard var node = pr.node else { throw WorkImportError("GitHub returned an invalid pull request URL.") }
+            guard var node = pr.node else { throw LockInError("GitHub returned an invalid pull request URL.") }
             node.context = !associated.contains(node.id)
             if !node.resolved && pr.state != "closed", let readinessRequest {
                 do {
@@ -79,39 +138,14 @@ public struct GitHubGraphClient: Sendable {
                 }
             }
             nodes[node.id] = node
-            if let membership = pr.stack {
-                let key = "\(reference.repository.lowercased())#\(membership.number)"
-                if stacks.insert(key).inserted {
-                    let stack = try await get(Stack.self, "repos/\(reference.repository)/stacks/\(membership.number)")
-                    guard stack.pull_requests.count == membership.size else { throw WorkImportError("GitHub returned an incomplete stack. Try refreshing again.") }
-                    let refs = stack.pull_requests.compactMap {
-                        PullRequestReference(url: "https://github.com/\(reference.repository)/pull/\($0.number)")
-                    }
-                    queue += refs
-                    for (first, second) in zip(refs, refs.dropFirst()) {
-                        edges.append(WorkEdge(from: first.nodeID, to: second.nodeID, kind: .depends, source: .stack))
-                    }
-                }
+            let upstream = if let membership = pr.stack {
+                try await stackUpstream(membership, repository: reference.repository, seen: &stacks)
             } else {
-                let repository = reference.repository.lowercased()
-                let defaultBranch: String
-                if let cached = defaultBranches[repository] {
-                    defaultBranch = cached
-                } else {
-                    let details = try await get(RepositoryDetails.self, "repos/\(reference.repository)")
-                    defaultBranch = details.default_branch
-                    defaultBranches[repository] = defaultBranch
-                }
-                // Integration branches are boundaries, not upstream feature PRs.
-                guard pr.base.ref != defaultBranch else { continue }
-                let candidates = try await branchCandidates(for: pr, repository: reference.repository)
-                if candidates.count == 1, let upstream = candidates[0].reference {
-                    queue.append(upstream)
-                    edges.append(WorkEdge(from: upstream.nodeID, to: node.id, kind: .depends, source: .branch))
-                } else if candidates.count > 1 {
-                    result.snapshot.warnings.append("Multiple PRs match the base branch of \(reference.key); no ordering was inferred.")
-                }
+                try await branchUpstream(pr, reference, node: node, defaultBranches: &defaultBranches)
             }
+            queue += upstream.references
+            edges += upstream.edges
+            if let warning = upstream.warning { result.snapshot.warnings.append(warning) }
         }
         result.nodes = nodes.values.sorted { $0.id < $1.id }
         result.snapshot.nodeIDs = nodes.keys.sorted()

@@ -41,7 +41,7 @@ struct WorkView: View {
                     WorkListView(presentation: presentation,
                                  completedIDs: Set(store.graphSessionTasks.filter(\.completed).map(\.workIdentity)),
                                  selection: $selection, toggleCollapsed: toggleCollapsed,
-                                 setDone: { store.setSessionWorkDone($0, done: $1) })
+                                 setDone: store.workLog == nil ? nil : { id, done in store.attemptWork { try store.setWorkDone(id, done: done) } })
                 }
                 if let node = selected {
                     Divider()

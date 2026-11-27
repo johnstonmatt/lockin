@@ -1,4 +1,5 @@
 import XCTest
+import LockInCore
 @testable import LockIn
 
 final class BrowserCadenceTests: XCTestCase {
@@ -35,5 +36,25 @@ final class BlockerMessageTests: XCTestCase {
             XCTAssertTrue(Blocker.permissionMessage(id, code: -1743).contains("Enable Lock In → \(name) in System Settings"))
         }
         XCTAssertEqual(Blocker.permissionMessage("org.example.Unknown", code: -1), "org.example.Unknown: browser access failed (-1).")
+    }
+}
+
+final class BlockerScanTests: XCTestCase {
+    func testOnlyBlockedTabsWithNumericIDsAreRedirected() {
+        let rules = WebsiteRules(["reddit.com"], mode: .block)
+        let rows: [[String?]] = [
+            ["1", "2", "https://www.reddit.com/r/swift"],
+            ["1", "3", "https://example.com"],
+            ["1\" & quit", "4", "https://reddit.com"],
+            ["1", nil, "https://reddit.com"],
+            ["1", "5"]
+        ]
+        let scanned = Blocker.tabsToBlock(rows, rules: rules)
+        XCTAssertEqual(scanned.tabs, [Blocker.ScannedTab(window: "1", tab: "2", url: "https://www.reddit.com/r/swift")])
+        XCTAssertEqual(scanned.unaddressable, 1, "an ID that isn't a number never reaches a script")
+    }
+    func testStatusNamesTheCadence() {
+        XCTAssertEqual(BrowserScanCadence.activeStatus,
+                       "Browser protection active · foreground checks every 250 ms; background sweep every 2 seconds")
     }
 }

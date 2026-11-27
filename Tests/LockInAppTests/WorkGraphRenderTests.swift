@@ -3,6 +3,7 @@ import SwiftUI
 import AppKit
 import LockInCore
 @testable import LockIn
+import LockInTestSupport
 
 final class WorkGraphRenderTests: StoreTestCase {
     static func fixture() -> WorkImportResult {
@@ -13,8 +14,8 @@ final class WorkGraphRenderTests: StoreTestCase {
             WorkNode(id: "api", kind: .pullRequest, title: "Restore the active session on launch", label: "app#84", status: "Open"),
             WorkNode(id: "ui", kind: .pullRequest, title: "Show restored work in the graph", label: "app#85", status: "Draft")
         ]
-        nodes[3].readiness = PullRequestReadiness(checks: "SUCCESS", reviewDecision: "APPROVED", mergeState: "CLEAN", isDraft: false, headOID: "abc")
-        nodes[4].readiness = PullRequestReadiness(checks: "SUCCESS", reviewDecision: "REVIEW_REQUIRED", mergeState: "BLOCKED", isDraft: false, headOID: "def")
+        nodes[3].readiness = PullRequestReadiness(checks: .success, reviewDecision: "APPROVED", mergeState: "CLEAN", isDraft: false, headOID: "abc")
+        nodes[4].readiness = PullRequestReadiness(checks: .success, reviewDecision: "REVIEW_REQUIRED", mergeState: "BLOCKED", isDraft: false, headOID: "def")
         let snapshot = WorkImport.fixture(id: "parent", nodeIDs: nodes.map(\.id), edges: [
             WorkEdge(from: "parent", to: "issue", kind: .contains, source: .linear),
             WorkEdge(from: "issue", to: "api", kind: .implements, source: .linear),
@@ -33,14 +34,14 @@ final class WorkGraphRenderTests: StoreTestCase {
         try store.applyWorkImport(Self.fixture(), addToSession: true, targetSession: nil)
         if ProcessInfo.processInfo.environment["LOCKIN_GRAPH_COMPLEX"] != nil {
             store.workGraph = WorkGraph()
-            store.commitJournal { $0.setPlan([]) }
+            try store.commitJournal { $0.setPlan([]) }
             try store.applyWorkImport(WorkGraphLayoutTests.fixture(), addToSession: true, targetSession: nil)
         }
         if let source = ProcessInfo.processInfo.environment["LOCKIN_GRAPH_DATA"] {
             let sourceDirectory = URL(fileURLWithPath: source)
-            store.workGraph = try XCTUnwrap(WorkGraphStorage.load(from: sourceDirectory))
+            store.workGraph = try XCTUnwrap(Storage.loadWorkGraph(from: sourceDirectory))
             store.journal = try Storage.load(from: sourceDirectory).journal
-            store.normalizeSessionEntries()
+            try store.normalizeSessionEntries()
             store.workImportMessage = nil
             let presentation = WorkPresentation(graph: store.sessionGraph, filter: .all, collapsed: [])
             assertLayoutInvariants(presentation, source)

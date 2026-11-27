@@ -28,16 +28,15 @@ struct PlannerView: View {
             Divider()
             HStack {
                 Text("Hours of work")
-                TextField("Hours", value: $store.journal.hours, format: .number).multilineTextAlignment(.center).textFieldStyle(.lockIn()).frame(width: 80)
-                Stepper("", value: $store.journal.hours, in: 0.25...24, step: 0.25).labelsHidden()
+                TextField("Hours", value: $store.plannedHours, format: .number).multilineTextAlignment(.center).textFieldStyle(.lockIn()).frame(width: 80)
+                Stepper("", value: $store.plannedHours, in: 0.25...24, step: 0.25).labelsHidden()
                 Spacer()
-                Text("2 hours earns 10 minutes of break").font(.caption).foregroundStyle(.secondary)
+                Text("Earns \(WorkStats.format(store.journal.hours * 3600 * WorkLog.breakRate)) of break").font(.caption).foregroundStyle(.secondary)
             }
             Text("The timer counts work only. Breaks and justified pauses extend the session. Earned break time belongs to this session and does not carry forward.").font(.caption).foregroundStyle(.secondary)
             Toggle("Hardcore Mode", isOn: $store.lockSession).toggleStyle(.checkbox)
             Button("Start session", systemImage: "play.fill") { store.start() }.buttonStyle(.pointer(.borderedProminent)).controlSize(.large)
         }
-        .onChange(of: store.journal.hours) { _, value in if value.isFinite { store.persist() } }
     }
 }
 struct PauseView: View {
@@ -87,17 +86,16 @@ struct DayReviewView: View {
             DayTimeline(intervals: stats.intervals(in: range), events: stats.events(in: range), now: store.now)
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    if let index = store.reviewIndex {
+                    if store.reviewIndex != nil {
                         Text("Update your TODOs").font(.headline)
                         Text("Choose “Next session” for each task you want to carry forward. It will be copied into the next plan; this session’s record stays intact.").font(.caption).foregroundStyle(.secondary)
-                        ForEach($store.journal.sessions[index].todos) { $todo in ReviewTaskEditor(todo: $todo) }
-                        Button("Add task", systemImage: "plus") { store.journal.sessions[index].todos.append(Todo()) }
+                        ForEach($store.reviewTasks) { $todo in ReviewTaskEditor(todo: $todo) }
+                        Button("Add task", systemImage: "plus") { store.reviewTasks.append(Todo()) }
                     }
                 }
             }.frame(minHeight: 140)
             HStack { Text("Saved locally in ~/.lockin").font(.caption).foregroundStyle(.secondary); Spacer(); Button("Save & plan next session") { store.completeReview() }.buttonStyle(.pointer(.borderedProminent)) }
         }.padding(28).frame(width: 720, height: 660).clearsFieldFocusOnClick()
         .interactiveDismissDisabled()
-        .onChange(of: store.reviewIndex.map { store.journal.sessions[$0].todos } ?? []) { _, _ in store.persist() }
     }
 }

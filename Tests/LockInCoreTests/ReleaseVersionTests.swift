@@ -16,3 +16,22 @@ final class ReleaseVersionTests: XCTestCase {
         }
     }
 }
+
+final class LatestReleaseTests: XCTestCase {
+    func testReadsTagVersionAndAppAsset() throws {
+        let json = """
+            {"tag_name": "v1.3.0", "assets": [
+              {"name": "LockIn-v1.3.0-macos-arm64.zip", "browser_download_url": "https://example.com/app.zip"},
+              {"name": "notes.txt", "browser_download_url": "https://example.com/notes.txt"}]}
+            """
+        let release = try ReleaseVersion.latestRelease(from: Data(json.utf8), statusCode: 200)
+        XCTAssertEqual(release.version, "1.3.0")
+        XCTAssertEqual(release.appAsset?.url, URL(string: "https://example.com/app.zip"))
+    }
+
+    func testRejectsFailuresAndBadTags() {
+        XCTAssertThrowsError(try ReleaseVersion.latestRelease(from: Data("{}".utf8), statusCode: 404))
+        XCTAssertThrowsError(try ReleaseVersion.latestRelease(from: Data(#"{"tag_name": "latest"}"#.utf8), statusCode: 200))
+        XCTAssertThrowsError(try ReleaseVersion.latestRelease(from: Data("not json".utf8), statusCode: 200))
+    }
+}

@@ -72,7 +72,7 @@ import LockInCore
     func install(locked: Bool) async {
         guard !busy, availableVersion != nil, canInstall else { return }
         guard !locked else {
-            status = "Hardcore Mode blocks updates until this session ends."
+            status = Store.hardcoreQuitMessage
             return
         }
         busy = true
@@ -85,20 +85,8 @@ import LockInCore
     }
 
     nonisolated static func latestVersion() async throws -> String {
-        struct Release: Decodable { let tag_name: String }
-        var request = URLRequest(url: ReleaseVersion.latestReleaseURL)
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        request.setValue("LockIn", forHTTPHeaderField: "User-Agent")
-        request.timeoutInterval = 30
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode) else {
-            throw CommandLineTool.Failure("GitHub couldn't return the latest release. Please try again later.")
-        }
-        let tag = try JSONDecoder().decode(Release.self, from: data).tag_name
-        guard let version = ReleaseVersion.version(fromTag: tag) else {
-            throw CommandLineTool.Failure("GitHub returned an invalid release version.")
-        }
-        return version
+        let (data, response) = try await URLSession.shared.data(for: ReleaseVersion.latestReleaseRequest())
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        return try ReleaseVersion.latestRelease(from: data, statusCode: status).version
     }
 }

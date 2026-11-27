@@ -2,10 +2,11 @@ import SwiftUI
 
 struct GraphCamera {
     var scale: CGFloat = 1
+    static let minScale: CGFloat = 0.1, maxScale: CGFloat = 2
     var offset = CGSize.zero
 
     mutating func zoom(to requestedScale: CGFloat, around anchor: CGPoint) {
-        let nextScale = min(2, max(0.1, requestedScale))
+        let nextScale = min(Self.maxScale, max(Self.minScale, requestedScale))
         let ratio = nextScale / scale
         offset = CGSize(width: anchor.x - (anchor.x - offset.width) * ratio,
                         height: anchor.y - (anchor.y - offset.height) * ratio)
@@ -14,7 +15,7 @@ struct GraphCamera {
 
     mutating func fit(content: CGSize, viewport: CGSize) {
         guard content.width > 0, content.height > 0, viewport.width > 0, viewport.height > 0 else { return }
-        scale = min(1, max(0.1, min(max(1, viewport.width - 64) / content.width,
+        scale = min(1, max(Self.minScale, min(max(1, viewport.width - 64) / content.width,
                                   max(1, viewport.height - 96) / content.height)))
         offset = CGSize(width: (viewport.width - content.width * scale) / 2,
                         height: (viewport.height - content.height * scale) / 2)
@@ -71,13 +72,13 @@ struct GraphViewport<Content: View>: View {
                     Button {
                         zoom(by: 1 / 1.2, in: geometry.size)
                     } label: { Image(systemName: "minus") }
-                    .accessibilityLabel("Zoom out").disabled(camera.scale <= 0.1)
+                    .accessibilityLabel("Zoom out").disabled(camera.scale <= GraphCamera.minScale)
                     Text(camera.scale, format: .percent.precision(.fractionLength(0)))
                         .monospacedDigit().frame(width: 40)
                     Button {
                         zoom(by: 1.2, in: geometry.size)
                     } label: { Image(systemName: "plus") }
-                    .accessibilityLabel("Zoom in").disabled(camera.scale >= 2)
+                    .accessibilityLabel("Zoom in").disabled(camera.scale >= GraphCamera.maxScale)
                     Divider().frame(height: 16)
                     Button("Fit graph", systemImage: "arrow.up.left.and.arrow.down.right") {
                         camera.fit(content: contentSize, viewport: geometry.size)

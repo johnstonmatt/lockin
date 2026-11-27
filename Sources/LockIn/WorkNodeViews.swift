@@ -46,7 +46,7 @@ struct WorkNodeCard: View {
                     .padding(.leading, 1).allowsHitTesting(false)
             }
         }
-        .opacity(isContext && !isSelected && !hovered ? 0.58 : 1)
+        .opacity(isContext && !isSelected && !hovered ? WorkGeometry.contextOpacity : 1)
         .shadow(color: .black.opacity(0.03), radius: 5, y: 2)
         .onHover { hovered = $0 }
     }
@@ -62,6 +62,23 @@ extension WorkNode {
         case .pending, .closed: return .orange
         case .open, .draft, nil: return .secondary
         }
+    }
+}
+
+/// Expands or collapses a region, in the list and on the graph.
+struct CollapseToggle: View {
+    let collapsed: Bool
+    let label: String
+    var height: CGFloat = 24
+    let toggle: () -> Void
+    var body: some View {
+        Button(action: toggle) {
+            Image(systemName: collapsed ? "chevron.right" : "chevron.down")
+                .font(.system(size: 11, weight: .semibold)).frame(width: 18, height: height)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.pointer(.plain))
+        .accessibilityLabel("\(collapsed ? "Expand" : "Collapse") \(label)")
     }
 }
 
@@ -85,13 +102,7 @@ struct WorkRegionHeader: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Button(action: toggle) {
-                Image(systemName: collapsed ? "chevron.right" : "chevron.down")
-                    .font(.system(size: 11, weight: .semibold)).frame(width: 18, height: 22)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.pointer(.plain))
-            .accessibilityLabel(collapsed ? "Expand \(node.label)" : "Collapse \(node.label)")
+            CollapseToggle(collapsed: collapsed, label: node.label, height: 22, toggle: toggle)
             Button(action: select) {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 7) {
@@ -110,7 +121,7 @@ struct WorkRegionHeader: View {
         .padding(16)
         .frame(width: width, height: WorkGraphLayout.regionHeaderHeight, alignment: .topLeading)
         .background(isSelected ? Color.accentColor.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 14))
-        .opacity(isContext && !hovered && !isSelected ? 0.58 : 1)
+        .opacity(isContext && !hovered && !isSelected ? WorkGeometry.contextOpacity : 1)
         .onHover { hovered = $0 }
     }
 }

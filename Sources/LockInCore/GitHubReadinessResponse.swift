@@ -26,7 +26,7 @@ public enum GitHubReadinessResponse {
         var state: String?
         var isRequired: Bool
 
-        var outcome: Outcome {
+        var outcome: PullRequestReadiness.Checks {
             if let state {
                 switch state {
                 case "SUCCESS": return .success
@@ -43,19 +43,12 @@ public enum GitHubReadinessResponse {
         }
     }
 
-    /// Stored as `PullRequestReadiness.checks`.
-    private enum Outcome: String { case success = "SUCCESS", failure = "FAILURE", pending = "PENDING" }
-
     public static func decode(_ data: Data, expectedHeadOID: String?) throws -> PullRequestReadiness {
-        struct Envelope: Decodable {
-            struct QueryData: Decodable {
-                struct Repository: Decodable { var pullRequest: PR? }
-                var repository: Repository?
-            }
-            struct Problem: Decodable { var message: String }
-            var data: QueryData?
-            var errors: [Problem]?
+        struct QueryData: Decodable {
+            struct Repository: Decodable { var pullRequest: PR? }
+            var repository: Repository?
         }
+        typealias Envelope = GraphQLResponse<QueryData>
         struct PR: Decodable {
             struct Commits: Decodable {
                 struct Node: Decodable {
@@ -88,25 +81,25 @@ public enum GitHubReadinessResponse {
         var result: PullRequestReadiness?
         var checks: [Check] = []
         for (index, envelope) in pages.enumerated() {
-            guard envelope.errors?.isEmpty != false, let pr = envelope.data?.repository?.pullRequest else {
-                throw WorkImportError("GitHub couldn't confirm checks and required reviews.")
+            guard !envelope.hasErrors, let pr = envelope.data?.repository?.pullRequest else {
+                throw LockInError("GitHub couldn't confirm checks and required reviews.")
             }
             guard let commit = pr.commits.nodes.last?.commit, commit.oid == pr.headRefOid,
                   expectedHeadOID == nil || expectedHeadOID == pr.headRefOid,
                   result == nil || result?.headOID == pr.headRefOid else {
-                throw WorkImportError("The PR changed while fetching checks. Refresh to read the latest revision.")
+                throw LockInError("The PR changed while fetching checks. Refresh to read the latest revision.")
             }
             let contexts = commit.statusCheckRollup?.contexts
             guard contexts?.pageInfo.hasNextPage == (index < pages.count - 1) || (contexts == nil && pages.count == 1) else {
-                throw WorkImportError("GitHub returned incomplete checks. Refresh to try again.")
+                throw LockInError("GitHub returned incomplete checks. Refresh to try again.")
             }
             checks += contexts?.nodes ?? []
             result = PullRequestReadiness(checks: nil, reviewDecision: pr.reviewDecision,
                                           mergeState: pr.mergeStateStatus, isDraft: pr.isDraft, headOID: pr.headRefOid)
         }
-        guard var result else { throw WorkImportError("GitHub returned no check results.") }
+        guard var result else { throw LockInError("GitHub returned no check results.") }
         let outcomes = Set(checks.filter(\.isRequired).map(\.outcome))
-        result.checks = [Outcome.failure, .pending].first(where: outcomes.contains)?.rawValue ?? Outcome.success.rawValue
+        result.checks = [.failure, .pending].first(where: outcomes.contains) ?? .success
         return result
     }
 }

@@ -33,17 +33,21 @@ struct WorkDetailsView: View {
                     Link("Open in \(node.kind.destination)", destination: url)
                 }
                 if inSession {
-                    Toggle("Done for this session", isOn: Binding(get: {
-                        store.isSessionWorkDone(node.id)
-                    }, set: { store.setSessionWorkDone(node.id, done: $0) }))
-                    Text("Session completion does not change Linear or GitHub. PR prerequisites are satisfied when merged.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Button("Remove from session") { store.removeWorkFromSession(node.id); selection = nil }
+                    if store.workLog != nil {
+                        Toggle("Done for this session", isOn: Binding(get: {
+                            store.isSessionWorkDone(node.id)
+                        }, set: { done in store.attemptWork { try store.setWorkDone(node.id, done: done) } }))
+                        Text("Session completion does not change Linear or GitHub. PR prerequisites are satisfied when merged.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Button("Remove from session") {
+                        if store.attemptWork({ try store.removeWork(node.id) }) { selection = nil }
+                    }
                 } else {
                     Text("Source-owned work · shown through this session’s selected entries.")
                         .font(.caption).foregroundStyle(.secondary)
                     if canInclude {
-                        Button("Include in session") { store.selectWorkForSession(node) }
+                        Button("Include in session") { store.attemptWork { try store.saveWorkSelection([node]) } }
                     }
                 }
                 if node.context && node.kind == .linear && canInclude {
@@ -103,7 +107,7 @@ private struct LocalWorkEditor: View {
             TextField("Title", text: $title).textFieldStyle(.lockIn())
             TextField("Optional link", text: $link).textFieldStyle(.lockIn())
             LinkRequirementNote(link: link)
-            Button("Save task") { store.renameSessionWork(node.id, title: title, link: link) }
+            Button("Save task") { store.attemptWork { try store.renameWork(node.id, title: title, link: link) } }
                 .disabled(!Todo().with(title: title, link: link).isValid)
         }.onAppear { title = node.title; link = node.url }
     }

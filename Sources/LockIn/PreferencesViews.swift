@@ -7,8 +7,8 @@ struct PreferencesView: View {
     @EnvironmentObject var updater: AppUpdater
     @State private var password = ""
     @State private var event = HookEvent.start
-    @AppStorage("showMenuBarItem") private var showMenuBarItem = true
-    @AppStorage("showMenuBarCountdown") private var showMenuBarCountdown = false
+    @AppStorage(MenuBarSettings.showItem) private var showMenuBarItem = true
+    @AppStorage(MenuBarSettings.showCountdown) private var showMenuBarCountdown = false
     @State private var restoringMenuBarItem = false
     @State private var loginEnabled = SMAppService.mainApp.status == .enabled
     @State private var cliStatus = CommandLineTool.Status.notInstalled
@@ -37,13 +37,13 @@ struct PreferencesView: View {
             }
             Text(updater.status).font(.callout).textSelection(.enabled)
             if updater.availableVersion != nil {
-                Text(!updater.canInstall ? "Install a packaged release to update from the app." : store.locked ? "Hardcore Mode blocks installation until this session ends." : "Installing restarts Lock In. Active sessions pause and resume automatically; a pause you started stays paused.")
+                Text(!updater.canInstall ? "Install a packaged release to update from the app." : store.locked ? Store.hardcoreQuitMessage : "Installing restarts Lock In. Active sessions pause and resume automatically; a pause you started stays paused.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
         Card {
             Label("Your rhythm", systemImage: "timer").font(.headline)
-            Text("Set your work target when planning each session. Every hour of work earns five minutes of break; pauses require a written reason and do not spend your balance.")
+            Text("Set your work target when planning each session. Work earns \(WorkLog.breakRateText); pauses require a written reason and do not spend your balance.")
                 .font(.callout).foregroundStyle(.secondary)
             Text("Each session is saved as JSON in ~/.lockin/sessions, with its tasks, breaks, pauses and events. Profiles and your plan are in ~/.lockin/settings.json. The formats are documented as JSON Schemas in the Lock In repository.").font(.caption).foregroundStyle(.secondary)
         }

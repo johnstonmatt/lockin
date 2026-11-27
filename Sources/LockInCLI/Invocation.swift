@@ -1,27 +1,24 @@
 import Foundation
 import LockInCore
 
-/// A parsed command line. Task numbers are 1-based positions in `lockin tasks`, resolved to IDs before sending.
+/// A parsed command line.
 enum Invocation: Equatable {
     case open
     case help
     case status(json: Bool)
     case tasks
     case history(count: Int)
-    case start(hours: Double?)
-    case pause(reason: String)
+    /// Counts the break down in the terminal as well as starting it.
     case takeBreak
-    case resume
-    case finish
-    case end(reason: String)
-    case addTask(WorkInput)
+    case upgrade
+    /// Sent to the app as it is.
+    case remote(RemoteCommand)
+    // Task numbers are 1-based positions in `lockin tasks`, resolved to IDs just before sending.
     case updateTask(number: Int, WorkInput)
     case setTaskCompleted(number: Int, completed: Bool)
     case deleteTask(number: Int)
-    case upgrade
+    /// Resolved against the time it's sent, so "23:00-now" means now.
     case backfill(range: String)
-    case undoBackfill
-    case addEvent(text: String)
 }
 
 struct UsageError: Error, Equatable {
@@ -94,17 +91,17 @@ func parse(_ arguments: [String]) throws -> Invocation {
             }
             return hours
         }
-        try noMore(args, command); return .start(hours: hours)
-    case "pause": return .pause(reason: try single(args, "pause", missing: "Say why you're pausing: lockin pause <reason>"))
+        try noMore(args, command); return .remote(.start(hours: hours))
+    case "pause": return .remote(.pause(reason: try single(args, "pause", missing: "Say why you're pausing: lockin pause <reason>")))
     case "break": try noMore(args, command); return .takeBreak
-    case "resume": try noMore(args, command); return .resume
-    case "finish": try noMore(args, command); return .finish
-    case "end": return .end(reason: try single(args, "end", missing: "Say why you're ending early: lockin end <reason>"))
+    case "resume": try noMore(args, command); return .remote(.resume)
+    case "finish": try noMore(args, command); return .remote(.finish)
+    case "end": return .remote(.end(reason: try single(args, "end", missing: "Say why you're ending early: lockin end <reason>")))
     case "task": return try parseTask(args)
     case "event": return try parseEvent(args)
     case "upgrade": try noMore(args, command); return .upgrade
     case "backfill":
-        if take(flag: "--undo", from: &args) { try noMore(args, command); return .undoBackfill }
+        if take(flag: "--undo", from: &args) { try noMore(args, command); return .remote(.undoBackfill) }
         return .backfill(range: try single(args, "backfill", missing: "Give the time range you worked: lockin backfill 9:00-10:30"))
     default: throw UsageError("Unknown command “\(command)”. Run lockin help.")
     }
@@ -122,7 +119,7 @@ private func parseTask(_ arguments: [String]) throws -> Invocation {
     switch action {
     case "add":
         let text = try single(args, "task add", missing: "Give the task a title or link: lockin task add \"<title> - <link>\"")
-        return .addTask(try parseWorkInput(text))
+        return .remote(.addTask(try parseWorkInput(text)))
     case "done": return .setTaskCompleted(number: try number(args, action), completed: true)
     case "undo", "undone": return .setTaskCompleted(number: try number(args, action), completed: false)
     case "rm", "remove", "delete": return .deleteTask(number: try number(args, action))
@@ -133,7 +130,7 @@ private func parseTask(_ arguments: [String]) throws -> Invocation {
 private func parseEvent(_ arguments: [String]) throws -> Invocation {
     var args = arguments
     guard !args.isEmpty, args.removeFirst() == "add" else { throw UsageError("Usage: lockin event add <text>") }
-    return .addEvent(text: try single(args, "event add", missing: "Say what happened: lockin event add \"<text>\""))
+    return .remote(.addEvent(text: try single(args, "event add", missing: "Say what happened: lockin event add \"<text>\"")))
 }
 
 /// Free text such as a reason or task: exactly one argument, so text with spaces must be quoted.

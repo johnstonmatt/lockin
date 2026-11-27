@@ -1,9 +1,10 @@
 import XCTest
 @testable import LockInCore
+import LockInTestSupport
 
 final class WorkImporterTests: XCTestCase {
     func testDirectPRImportSkipsLinearAndSelectsOnlyRequestedPR() async throws {
-        let importer = WorkImporter(fetchLinear: { _ in throw WorkImportError("Linear must not run") }, enrichGitHub: { seed in
+        let importer = WorkImporter(fetchLinear: { _ in throw LockInError("Linear must not run") }, enrichGitHub: { seed in
             var result = seed
             result.nodes[0].context = true
             result.nodes.append(WorkNode(id: "upstream", kind: .pullRequest, title: "Prerequisite", context: true))
@@ -22,7 +23,7 @@ final class WorkImporterTests: XCTestCase {
 
     func testFirstImportRetainsLinearTreeWhenGitHubIsUnavailable() async throws {
         let seed = fixture()
-        let importer = WorkImporter(fetchLinear: { _ in seed }, enrichGitHub: { _ in throw WorkImportError("Unavailable") })
+        let importer = WorkImporter(fetchLinear: { _ in seed }, enrichGitHub: { _ in throw LockInError("Unavailable") })
         let result = try await importer.fetch("ENG-1", preserving: [])
         XCTAssertEqual(result.nodes, seed.nodes)
         XCTAssertEqual(result.snapshot.warnings, ["PR details are incomplete: Unavailable"])
@@ -30,7 +31,7 @@ final class WorkImporterTests: XCTestCase {
 
     func testRefreshNeverReturnsAPartialReplacement() async {
         let seed = fixture()
-        let importer = WorkImporter(fetchLinear: { _ in seed }, enrichGitHub: { _ in throw WorkImportError("Unavailable") })
+        let importer = WorkImporter(fetchLinear: { _ in seed }, enrichGitHub: { _ in throw LockInError("Unavailable") })
         do {
             _ = try await importer.fetch("ENG-1", preserving: [seed.snapshot.id])
             XCTFail("A failed refresh must preserve the saved import")

@@ -27,52 +27,15 @@ struct WorkGraphCanvas: View {
                     guard let route = presentation.routes[edge.id] else { continue }
                     let highlighted = selection == edge.from || selection == edge.to
                     let color: Color = highlighted ? .accentColor : .secondary.opacity(0.5)
-                    context.stroke(roundedRoute(route.points), with: .color(color),
+                    context.stroke(route.path, with: .color(color),
                                    style: StrokeStyle(lineWidth: highlighted ? 2 : 1.5, dash: edge.source == .branch ? [5, 4] : []))
-                    if let arrow = arrowhead(route.points) { context.stroke(arrow, with: .color(color), lineWidth: 1.5) }
+                    if let arrow = route.arrowhead { context.stroke(arrow, with: .color(color), lineWidth: 1.5) }
                 }
             }.accessibilityHidden(true).allowsHitTesting(false)
             ForEach(presentation.graph.nodes.filter { layout.positions[$0.id] != nil }) { node in
                 nodeView(node).position(layout.positions[node.id] ?? .zero)
             }
         }.frame(width: layout.size.width, height: layout.size.height)
-    }
-
-    private func arrowhead(_ points: [CGPoint]) -> Path? {
-        guard points.count > 1, let end = points.last else { return nil }
-        let before = points[points.count - 2]
-        let length = hypot(end.x - before.x, end.y - before.y)
-        guard length > 0 else { return nil }
-        let dx = (end.x - before.x) / length, dy = (end.y - before.y) / length
-        let back = CGPoint(x: end.x - dx * WorkGeometry.arrowLength, y: end.y - dy * WorkGeometry.arrowLength)
-        let spread = CGPoint(x: dy * WorkGeometry.arrowHalfWidth, y: dx * WorkGeometry.arrowHalfWidth)
-        var arrow = Path()
-        arrow.move(to: CGPoint(x: back.x - spread.x, y: back.y + spread.y))
-        arrow.addLine(to: end)
-        arrow.addLine(to: CGPoint(x: back.x + spread.x, y: back.y - spread.y))
-        return arrow
-    }
-
-    private func roundedRoute(_ points: [CGPoint]) -> Path {
-        var path = Path()
-        guard let start = points.first else { return path }
-        path.move(to: start)
-        for index in 1..<points.count {
-            let corner = points[index]
-            guard index + 1 < points.count else { path.addLine(to: corner); break }
-            let before = points[index - 1], after = points[index + 1]
-            let incoming = hypot(corner.x - before.x, corner.y - before.y)
-            let outgoing = hypot(after.x - corner.x, after.y - corner.y)
-            let radius = min(WorkGeometry.cornerRadius, incoming / 2, outgoing / 2)
-            guard radius > 0 else { continue }
-            let entry = CGPoint(x: corner.x + (before.x - corner.x) * radius / incoming,
-                                y: corner.y + (before.y - corner.y) * radius / incoming)
-            let exit = CGPoint(x: corner.x + (after.x - corner.x) * radius / outgoing,
-                               y: corner.y + (after.y - corner.y) * radius / outgoing)
-            path.addLine(to: entry)
-            path.addQuadCurve(to: exit, control: corner)
-        }
-        return path
     }
 
     @ViewBuilder

@@ -33,6 +33,32 @@ struct WorkHierarchy {
         return result
     }
 
+    /// What a filter and collapsed regions leave on screen. The list and the graph both draw from it.
+    struct Visibility {
+        /// Nodes the filter includes.
+        let shown: Set<String>
+        /// The card each shown node appears as: itself, or the outermost collapsed region containing it.
+        let representatives: [String: String]
+        /// Shown nodes that appear as themselves.
+        let rendered: Set<String>
+    }
+
+    func visibility(filter: WorkFilter, collapsed: Set<String>) -> Visibility {
+        let shown = Set(nodes.values.filter(filter.includes).map(\.id))
+        var representatives: [String: String] = [:]
+        for id in shown {
+            var representative = id
+            var ancestor = parent[id]
+            while let current = ancestor {
+                if shown.contains(current) && collapsed.contains(current) { representative = current }
+                ancestor = parent[current]
+            }
+            representatives[id] = representative
+        }
+        return Visibility(shown: shown, representatives: representatives,
+                          rendered: shown.filter { representatives[$0] == $0 })
+    }
+
     func breadcrumb(for id: String) -> String? {
         var labels: [String] = []
         var ancestor = parent[id]
@@ -56,9 +82,8 @@ struct WorkListLayout {
 
     init(graph: WorkGraph, filter: WorkFilter, collapsed: Set<String>, hierarchy: WorkHierarchy? = nil) {
         let hierarchy = hierarchy ?? WorkHierarchy(graph: graph)
-        let shown = Set(hierarchy.nodes.values.filter {
-            filter.includes($0)
-        }.map(\.id))
+        let visibility = hierarchy.visibility(filter: filter, collapsed: collapsed)
+        let shown = visibility.shown, rendered = visibility.rendered
         func sorted(_ ids: [String]) -> [String] {
             ids.sorted {
                 let lhs = hierarchy.nodes[$0]!, rhs = hierarchy.nodes[$1]!
@@ -71,12 +96,11 @@ struct WorkListLayout {
             let count = hierarchy.descendants(id).intersection(shown).count
             rows.append(Row(node: node, depth: depth, descendantCount: count,
                             breadcrumb: filter == .prs ? hierarchy.breadcrumb(for: id) : nil))
-            guard !collapsed.contains(id), filter != .prs else { return }
-            for child in sorted((hierarchy.children[id] ?? []).filter { shown.contains($0) }) {
+            for child in sorted((hierarchy.children[id] ?? []).filter(rendered.contains)) {
                 append(child, depth: depth + 1)
             }
         }
-        let roots = shown.filter { hierarchy.parent[$0].map { !shown.contains($0) } ?? true }
+        let roots = rendered.filter { hierarchy.parent[$0].map { !rendered.contains($0) } ?? true }
         for id in sorted(Array(roots)) { append(id, depth: 0) }
     }
 }

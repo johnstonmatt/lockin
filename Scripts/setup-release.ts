@@ -544,6 +544,17 @@ async function collectNotaryKey(): Promise<NotaryKey> {
 
 // ----------------------------------------------------------------------- main
 
+/** The secrets .github/workflows/release.yml reads. */
+const SECRET_NAMES = [
+  "MACOS_CERTIFICATE",
+  "MACOS_CERTIFICATE_PASSWORD",
+  "MACOS_SIGN_IDENTITY",
+  "APPLE_API_KEY",
+  "APPLE_API_KEY_ID",
+  "APPLE_API_ISSUER",
+] as const;
+type SecretName = typeof SECRET_NAMES[number];
+
 async function main(): Promise<void> {
   heading("Release credential setup for Lock In");
   note("Sets up the Apple secrets used by .github/workflows/release.yml.");
@@ -552,15 +563,7 @@ async function main(): Promise<void> {
   const repo = await preflight();
   const already = await existingSecrets();
 
-  const names = [
-    "MACOS_CERTIFICATE",
-    "MACOS_CERTIFICATE_PASSWORD",
-    "MACOS_SIGN_IDENTITY",
-    "APPLE_API_KEY",
-    "APPLE_API_KEY_ID",
-    "APPLE_API_ISSUER",
-  ];
-  const configured = names.filter((name) => already.has(name));
+  const configured = SECRET_NAMES.filter((name) => already.has(name));
   if (configured.length > 0) {
     out("\n");
     note(`Already set on ${repo}: ${configured.join(", ")}`);
@@ -573,14 +576,16 @@ async function main(): Promise<void> {
   const certificate = await collectCertificate();
   const notary = await collectNotaryKey();
 
-  const secrets = new Map<string, string>([
-    ["MACOS_CERTIFICATE", certificate.base64],
-    ["MACOS_CERTIFICATE_PASSWORD", certificate.password],
-    ["MACOS_SIGN_IDENTITY", certificate.identity],
-    ["APPLE_API_KEY", notary.base64],
-    ["APPLE_API_KEY_ID", notary.keyId],
-    ["APPLE_API_ISSUER", notary.issuer],
-  ]);
+  // A Record, so leaving out one of SECRET_NAMES is a type error.
+  const values: Record<SecretName, string> = {
+    MACOS_CERTIFICATE: certificate.base64,
+    MACOS_CERTIFICATE_PASSWORD: certificate.password,
+    MACOS_SIGN_IDENTITY: certificate.identity,
+    APPLE_API_KEY: notary.base64,
+    APPLE_API_KEY_ID: notary.keyId,
+    APPLE_API_ISSUER: notary.issuer,
+  };
+  const secrets = new Map(SECRET_NAMES.map((name) => [name, values[name]]));
 
   heading("Ready to write");
   out(`Repository: ${repo}\n\n`);

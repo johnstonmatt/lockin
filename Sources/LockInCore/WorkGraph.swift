@@ -72,8 +72,8 @@ public struct WorkImportResult: Sendable {
 }
 
 public struct WorkGraph: Codable, Equatable, Sendable {
-    public var schema: String? = FileFormat.schemaBase + "work-graph-v1.schema.json"
-    public var schemaVersion = 1
+    public var schema: String? = FileFormat.schemaBase + "work-graph-v\(FileFormat.workGraphVersion).schema.json"
+    public var schemaVersion = FileFormat.workGraphVersion
     public var nodes: [WorkNode] = []
     public var imports: [WorkImport] = []
     public init() {}
@@ -103,9 +103,10 @@ public struct WorkGraph: Codable, Equatable, Sendable {
         }
         return (accepted, conflicts)
     }
-    public func blockers(of id: String) -> [WorkNode] {
-        let upstream = Set(sequencing.edges.filter { $0.to == id }.map(\.from))
-        return nodes.filter { upstream.contains($0.id) && !$0.resolved }
+    /// The `dependencies` whose prerequisite isn't resolved yet: what still holds up the work each one leads to.
+    public func blocking(_ dependencies: [WorkEdge]) -> [WorkEdge] {
+        let resolved = Set(nodes.filter(\.resolved).map(\.id))
+        return dependencies.filter { !resolved.contains($0.from) }
     }
     public func descendants(of roots: Set<String>) -> Set<String> {
         Self.closure(of: roots, along: Self.adjacency(memberships, forward: true))
@@ -175,22 +176,5 @@ extension Sequence {
     public func uniqued<Key: Hashable>(by key: (Element) -> Key) -> [Element] {
         var seen = Set<Key>()
         return filter { seen.insert(key($0)).inserted }
-    }
-}
-
-public enum WorkGraphStorage {
-    public static func file(in directory: URL) -> URL { directory.appendingPathComponent("work-graph.json") }
-    public static func load(from directory: URL) throws -> WorkGraph? {
-        let url = file(in: directory)
-        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-        let graph = try FileFormat.decode(WorkGraph.self, from: Data(contentsOf: url), supported: 1)
-        guard graph.schemaVersion == 1, Set(graph.nodes.map(\.id)).count == graph.nodes.count else {
-            throw CocoaError(.fileReadCorruptFile)
-        }
-        return graph
-    }
-    public static func save(_ graph: WorkGraph, in directory: URL) throws {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try FileFormat.data(graph).write(to: file(in: directory), options: .atomic)
     }
 }

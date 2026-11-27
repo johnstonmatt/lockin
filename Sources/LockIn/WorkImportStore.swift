@@ -19,7 +19,7 @@ enum WorkOperation {
 extension Store {
     @discardableResult
     func importWork(_ input: String, addToSession: Bool = true, using importer: WorkImporter? = nil) throws -> WorkOperation {
-        guard !workImporting, workGraphWritable else { throw WorkImportError("Work can't be imported right now. Try again shortly.") }
+        guard !workImporting, workGraphWritable else { throw LockInError("Work can't be imported right now. Try again shortly.") }
         let targetSession = workLog?.id
         workImportMessage = "Loading work and dependencies…"
         let task = Task<String, Error> { [weak self] in
@@ -32,8 +32,8 @@ extension Store {
                 return message
             } catch {
                 let failure = error is CancellationError
-                    ? WorkImportError("Import canceled. Saved work is unchanged.")
-                    : WorkImportError(error.localizedDescription)
+                    ? LockInError("Import canceled. Saved work is unchanged.")
+                    : LockInError(error.localizedDescription)
                 self.workImportMessage = failure.localizedDescription
                 throw failure
             }
@@ -56,13 +56,12 @@ extension Store {
         try saveWorkGraph(candidate)
         if addsToSession {
             do { try saveWorkSelection(result.nodes.filter { $0.id == result.snapshot.id }) }
-            catch { throw WorkImportError("Graph saved, but session tasks couldn't be saved. Add the saved work again to retry.") }
+            catch { throw LockInError("Graph saved, but session tasks couldn't be saved. Add the saved work again to retry.") }
         }
-        guard normalizeSessionEntries() else {
-            throw WorkImportError("Graph saved, but session tasks couldn't be saved. Refresh the work to retry.")
-        }
+        do { try normalizeSessionEntries() }
+        catch { throw LockInError("Graph saved, but session tasks couldn't be saved. Refresh the work to retry.") }
         if addToSession && !addsToSession {
-            throw WorkImportError("Graph saved. The session changed during import; add its URL again to include it.")
+            throw LockInError("Graph saved. The session changed during import; add its URL again to include it.")
         }
         return result.snapshot.warnings.isEmpty
             ? "Imported \(result.nodes.count) work items."

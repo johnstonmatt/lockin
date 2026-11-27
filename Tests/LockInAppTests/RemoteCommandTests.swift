@@ -18,7 +18,7 @@ final class RemoteCommandTests: StoreTestCase {
         XCTAssertTrue(store.active)
         XCTAssertEqual(store.workLog?.targetSeconds, 7200)
         XCTAssertEqual(store.workLog?.todos.count, 0)
-        let commandReply = await store.perform(.addTask(title: "Docs", link: ""))
+        let commandReply = await store.perform(.addTask(WorkInput(title: "Docs", link: "")))
         XCTAssertTrue(commandReply.ok)
         XCTAssertEqual(store.workLog?.todos.map(\.title), ["Docs"])
         XCTAssertEqual(makeStore().workLog?.todos.map(\.title), ["Docs"])
@@ -26,9 +26,9 @@ final class RemoteCommandTests: StoreTestCase {
 
     @MainActor func testPlanStartPauseBreakResume() async throws {
         let store = makeStore()
-        var commandReply = await store.perform(.addTask(title: "Docs", link: "not a link"))
+        var commandReply = await store.perform(.addTask(WorkInput(title: "Docs", link: "not a link")))
         XCTAssertFalse(commandReply.ok)
-        commandReply = await store.perform(.addTask(title: "Docs", link: ""))
+        commandReply = await store.perform(.addTask(WorkInput(title: "Docs", link: "")))
         XCTAssertTrue(commandReply.ok)
         XCTAssertEqual(store.journal.draft.map(\.title), ["Docs"], "the planner's blank row is dropped")
         XCTAssertEqual(makeStore().journal.draft.map(\.title), ["Docs"], "the plan is saved")
@@ -63,10 +63,8 @@ final class RemoteCommandTests: StoreTestCase {
     }
 
     @MainActor func testTasksDuringASession() async throws {
-        let store = makeStore()
-        store.journal.draft = [Todo(title: "First")]
-        store.start()
-        var commandReply = await store.perform(.addTask(title: "Second", link: "https://example.com/task"))
+        let store = startedStore(tasks: ["First"])
+        var commandReply = await store.perform(.addTask(WorkInput(title: "Second", link: "https://example.com/task")))
         XCTAssertTrue(commandReply.ok)
         let ids = try XCTUnwrap(store.workLog?.todos.map(\.id))
         commandReply = await store.perform(.setTaskCompleted(id: ids[1], completed: true))
@@ -101,17 +99,14 @@ final class RemoteCommandTests: StoreTestCase {
         commandReply = await store.perform(.end(reason: "Starting a new day"))
         XCTAssertTrue(commandReply.ok)
         XCTAssertFalse(store.active)
-        commandReply = await store.perform(.addTask(title: "Lost", link: ""))
+        commandReply = await store.perform(.addTask(WorkInput(title: "Lost", link: "")))
         XCTAssertFalse(commandReply.ok, "the review would overwrite the plan")
         commandReply = await store.perform(.start(hours: nil))
         XCTAssertFalse(commandReply.ok, "review first")
     }
 
     @MainActor func testHardcoreRefusesEnd() async {
-        let store = makeStore()
-        store.journal.draft = [Todo(title: "Task")]
-        store.lockSession = true
-        store.start()
+        let store = startedStore(tasks: ["Task"], hardcore: true)
         let commandReply = await store.perform(.end(reason: "Bored"))
         XCTAssertFalse(commandReply.ok)
         XCTAssertTrue(store.active)
@@ -154,7 +149,7 @@ final class RemoteCommandTests: StoreTestCase {
 
     @MainActor func testDeletingFromThePlan() async throws {
         let store = makeStore()
-        var commandReply = await store.perform(.addTask(title: "Only", link: ""))
+        var commandReply = await store.perform(.addTask(WorkInput(title: "Only", link: "")))
         XCTAssertTrue(commandReply.ok)
         let id = try XCTUnwrap(store.journal.draft.first?.id)
         commandReply = await store.perform(.updateTask(id: id, title: " ", link: nil))
@@ -172,7 +167,7 @@ final class RemoteCommandTests: StoreTestCase {
         // A file where the sessions directory should be makes every write fail.
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try Data().write(to: Storage.sessionsDirectory(in: directory))
-        let reply = await store.perform(.addTask(title: "Lost", link: ""))
+        let reply = await store.perform(.addTask(WorkInput(title: "Lost", link: "")))
         XCTAssertFalse(reply.ok)
         XCTAssertTrue(reply.message.contains("Could not save"), reply.message)
         XCTAssertFalse(store.journal.draft.contains { $0.title == "Lost" }, "the journal in memory matches the one on disk")
@@ -253,7 +248,7 @@ final class RemoteCommandTests: StoreTestCase {
         earlier.intervals[0].end = now.addingTimeInterval(-4 * 3600)
         earlier.endedAt = now.addingTimeInterval(-4 * 3600)
         earlier.reviewed = true
-        XCTAssertTrue(store.commitJournal { $0.sessions = [earlier] })
+        try store.commitJournal { $0.sessions = [earlier] }
         let afterEnd = await store.perform(.backfill(start: now.addingTimeInterval(-4.5 * 3600), end: now.addingTimeInterval(-3.5 * 3600)))
         XCTAssertFalse(afterEnd.ok)
         XCTAssertEqual(afterEnd.message, Store.explain(.afterEnd(sessionEnd: now.addingTimeInterval(-4 * 3600))))
@@ -268,7 +263,7 @@ final class RemoteCommandTests: StoreTestCase {
 
     @MainActor func testPlanEditsWaitForThePendingReview() async throws {
         let store = makeStore()
-        let added = await store.perform(.addTask(title: "Planned", link: ""))
+        let added = await store.perform(.addTask(WorkInput(title: "Planned", link: "")))
         XCTAssertTrue(added.ok, added.message)
         let id = try XCTUnwrap(store.journal.draft.first?.id)
         store.journal.pendingReviewID = UUID()
@@ -302,7 +297,7 @@ final class RemoteChannelTests: StoreTestCase {
             reply = RemoteChannel.decode(RemoteReply.self, from: note.userInfo); replied.fulfill()
         }
         defer { center.removeObserver(observer) }
-        center.postNotificationName(channel.request, object: id, userInfo: RemoteChannel.encode(RemoteCommand.addTask(title: "Via CLI", link: "")), deliverImmediately: true)
+        center.postNotificationName(channel.request, object: id, userInfo: RemoteChannel.encode(RemoteCommand.addTask(WorkInput(title: "Via CLI", link: ""))), deliverImmediately: true)
         await fulfillment(of: [replied], timeout: 5)
         XCTAssertEqual(reply?.ok, true, reply?.message ?? "no reply")
         XCTAssertEqual(store.journal.draft.map(\.title), ["Via CLI"])

@@ -1,6 +1,14 @@
 import Foundation
 
 extension WorkNode {
+    /// A PR's lifecycle as GitHub reports it, stored in `status`.
+    public enum PullRequestState: String, Sendable {
+        case open = "Open", draft = "Draft", closed = "Closed", merged = "Merged"
+        /// Linked from Linear, not yet read from GitHub.
+        case notFetched = "Not fetched"
+    }
+    var pullRequestState: PullRequestState? { kind == .pullRequest ? PullRequestState(rawValue: status) : nil }
+
     public enum DisplayStatus: String, Sendable {
         case open = "Open", done = "Done", merged = "Merged", closed = "Closed"
         case draft = "Draft", pending = "Pending", failing = "Failing", passing = "Passing", ready = "Ready"
@@ -23,15 +31,15 @@ extension WorkNode {
         case .local: return resolved ? .done : .open
         case .pullRequest:
             if resolved { return .merged }
-            if status == "Closed" { return .closed }
-            return readiness.map { DisplayStatus($0.status) } ?? (status == "Draft" ? .draft : .pending)
+            if pullRequestState == .closed { return .closed }
+            return readiness.map { DisplayStatus($0.status) } ?? (pullRequestState == .draft ? .draft : .pending)
         }
     }
 
     public var statusExplanation: String {
         if kind != .pullRequest { return "" }
         if resolved { return "This PR is merged and satisfies its graph dependencies." }
-        if status == "Closed" { return "This PR was closed without merging. Its dependencies are not satisfied." }
+        if pullRequestState == .closed { return "This PR was closed without merging. Its dependencies are not satisfied." }
         return readiness?.explanation ?? "Check and review results are not available. Refresh to fetch them."
     }
 }

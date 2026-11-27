@@ -1,6 +1,7 @@
 import XCTest
 import LockInCore
 @testable import LockIn
+import LockInTestSupport
 
 final class WorkListLayoutTests: XCTestCase {
     private func graph() -> WorkGraph {

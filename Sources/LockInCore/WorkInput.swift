@@ -1,6 +1,6 @@
 import Foundation
 
-public struct WorkInput: Equatable, Sendable {
+public struct WorkInput: Equatable, Sendable, Codable {
     public let title: String?
     public let link: String?
 
@@ -8,6 +8,13 @@ public struct WorkInput: Equatable, Sendable {
     public init(title: String? = nil, link: String? = nil) {
         self.title = title.map(\.trimmed).flatMap { $0.isEmpty ? nil : $0 }
         self.link = link.map(\.trimmed).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// Decoding trims and drops blank fields too, so input from the CLI is read as typed input is.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(title: try container.decodeIfPresent(String.self, forKey: .title),
+                  link: try container.decodeIfPresent(String.self, forKey: .link))
     }
 
     /// "<title>", "<link>", or "<title> - <link>".
@@ -32,12 +39,18 @@ public struct WorkInput: Equatable, Sendable {
         LinearGraphClient.issueIdentifier(from: source) != nil || PullRequestReference(url: source) != nil ? source : nil
     }
 
+    /// Whether saved work is this input: links match by identity, plain task names case-insensitively.
+    public func matches(title: String, link: String) -> Bool {
+        if let identity { return Self.linkIdentity(link) == identity }
+        return title.trimmed.caseInsensitiveCompare(newTitle) == .orderedSame
+    }
+
     public func validate() throws {
-        guard !source.isEmpty else { throw WorkImportError("Enter a URL or task name.") }
+        guard !source.isEmpty else { throw LockInError("Enter a URL or task name.") }
         if let link {
-            guard Todo.isValidLink(link) else { throw WorkImportError(Todo.linkRequirement) }
+            guard Todo.isValidLink(link) else { throw LockInError(Todo.linkRequirement) }
         } else if source.contains("://") || source.lowercased().hasPrefix("www.") {
-            throw WorkImportError(Todo.linkRequirement)
+            throw LockInError(Todo.linkRequirement)
         }
     }
 
@@ -45,7 +58,7 @@ public struct WorkInput: Equatable, Sendable {
         let text = input.trimmed
         if let issue = LinearGraphClient.issueIdentifier(from: text) { return "linear:\(issue)" }
         if let pr = PullRequestReference(url: text) { return pr.nodeID }
-        guard !text.isEmpty, Todo.isValidLink(text), var url = URLComponents(string: text) else { return nil }
+        guard Link.webURL(text) != nil, var url = URLComponents(string: text) else { return nil }
         url.scheme = url.scheme?.lowercased()
         url.host = url.host?.lowercased()
         url.fragment = nil

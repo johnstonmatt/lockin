@@ -66,3 +66,38 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(Todo.title(fromLink: "https://example.com"), "example.com")
     }
 }
+
+final class ProfilePasswordTests: XCTestCase {
+    func testPasswordMatchesOnlyItself() {
+        var profile = Profile()
+        XCTAssertFalse(profile.passwordMatches(""), "no password set")
+        profile.setPassword("hunter2", salt: "salt")
+        XCTAssertTrue(profile.passwordMatches("hunter2"))
+        XCTAssertFalse(profile.passwordMatches("hunter3"))
+        XCTAssertNotEqual(profile.passwordHash, "hunter2")
+        var other = Profile()
+        other.setPassword("hunter2", salt: "pepper")
+        XCTAssertNotEqual(other.passwordHash, profile.passwordHash, "the salt changes the digest")
+    }
+}
+
+final class LinkTests: XCTestCase {
+    /// Titles, imports and duplicate checks read a link the same way.
+    func testLinksAreReadTheSameWayEverywhere() {
+        for link in ["https://linear.app/acme/issue/ENG-12/fix-it", "http://linear.app/acme/issue/eng-12", "https://acme.linear.app/acme/issue/ENG-12"] {
+            XCTAssertEqual(LinearGraphClient.issueIdentifier(from: link), "ENG-12", link)
+            XCTAssertEqual(WorkInput.linkIdentity(link), "linear:ENG-12", link)
+            XCTAssertTrue(Todo.title(fromLink: link).hasPrefix("ENG-12"), link)
+        }
+        XCTAssertNil(LinearGraphClient.issueIdentifier(from: "https://linear.app/acme/issue/not-an-issue"))
+        for link in ["https://github.com/Acme/App/pull/7/files", "http://www.github.com/acme/app/pull/7"] {
+            XCTAssertEqual(PullRequestReference(url: link)?.nodeID, "github:acme/app#7", link)
+            XCTAssertEqual(WorkInput.linkIdentity(link), "github:acme/app#7", link)
+        }
+        XCTAssertNil(PullRequestReference(url: "https://gist.github.com/acme/app/pull/7"))
+        for text in ["ftp://example.com", "https://", "example.com", "mailto:a@b.c"] {
+            XCTAssertNil(Link.webURL(text), text)
+            XCTAssertFalse(Todo.isValidLink(text), text)
+        }
+    }
+}

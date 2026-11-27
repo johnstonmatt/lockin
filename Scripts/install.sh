@@ -7,7 +7,7 @@
 # A running copy is asked to quit via lockin://update: it pauses an in-progress
 # session ("Updating Lock In"), quits, and resumes the session when relaunched.
 # If it refuses (Hardcore Mode), the install is aborted rather than force-killing it.
-# The CLI is linked from the installed app into $LOCKIN_BIN_DIR (default ~/.local/bin).
+# The CLI is linked from the installed app into ~/.local/bin, where Settings → Command line looks for it.
 set -euo pipefail
 
 APP_NAME="Lock In"
@@ -47,10 +47,16 @@ mv "$STAGING" "$DEST"
 printf 'Installed %s\n' "$DEST"
 
 # A link into the app, so updating the app updates the CLI too.
-BIN_DIR="${LOCKIN_BIN_DIR:-$HOME/.local/bin}"
+BIN_DIR="$HOME/.local/bin"
+LINK="$BIN_DIR/lockin"
 mkdir -p "$BIN_DIR"
-ln -sfn "$DEST/Contents/Helpers/lockin" "$BIN_DIR/lockin"
-printf 'Linked %s/lockin\n' "$BIN_DIR"
+if [[ -e "$LINK" && ! -L "$LINK" ]]; then
+    # A file of your own is never replaced, matching Settings → Command line.
+    printf '%s already exists and is not a link to Lock In, so it was left alone.\n' "$LINK" >&2
+else
+    ln -sfn "$DEST/Contents/Helpers/lockin" "$LINK"
+    printf 'Linked %s\n' "$LINK"
+fi
 case ":$PATH:" in *":$BIN_DIR:"*) ;; *) printf 'Add %s to your PATH to run lockin.\n' "$BIN_DIR" >&2 ;; esac
 
 if $was_running; then open "$DEST"; fi
