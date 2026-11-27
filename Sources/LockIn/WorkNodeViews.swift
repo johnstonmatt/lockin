@@ -133,12 +133,14 @@ struct WorkSourceBadge: View {
     let kind: WorkNode.Kind
     var body: some View {
         HStack(spacing: 4) {
-            if kind == .pullRequest {
+            switch kind {
+            case .pullRequest:
                 PullRequestGlyph().stroke(style: StrokeStyle(lineWidth: 1.3, lineCap: .round, lineJoin: .round))
                     .frame(width: 12, height: 14).accessibilityHidden(true)
-            } else {
-                Image(systemName: kind == .linear ? "diamond.fill" : "checklist")
-                    .font(.system(size: 9)).accessibilityHidden(true)
+            case .linear:
+                LinearGlyph().frame(width: 10, height: 10).accessibilityHidden(true)
+            case .local:
+                Image(systemName: "checklist").font(.system(size: 9)).accessibilityHidden(true)
             }
             Text(kind.badge).font(.system(size: 9, weight: .semibold))
         }
@@ -170,6 +172,24 @@ extension WorkNode.Kind {
         case .linear: return "Linear"
         case .local: return "browser"
         }
+    }
+}
+
+/// Linear's mark: a disc cut by three diagonal gaps toward its lower left.
+private struct LinearGlyph: Shape {
+    func path(in rect: CGRect) -> Path {
+        // On a 100-point disc, the filled bands between lines y - x = c.
+        let bands: [(CGFloat, CGFloat)] = [(-100, 5.4), (15.9, 25.5), (36.9, 46.9), (60.3, 200)]
+        var fill = Path()
+        for (low, high) in bands {
+            fill.addLines([CGPoint(x: -100, y: -100 + low), CGPoint(x: 200, y: 200 + low),
+                           CGPoint(x: 200, y: 200 + high), CGPoint(x: -100, y: -100 + high)])
+            fill.closeSubpath()
+        }
+        let disc = Path(ellipseIn: CGRect(x: 0, y: 0, width: 100, height: 100))
+        let side = min(rect.width, rect.height)
+        return disc.intersection(fill).applying(
+            CGAffineTransform(translationX: rect.midX - side / 2, y: rect.midY - side / 2).scaledBy(x: side / 100, y: side / 100))
     }
 }
 
