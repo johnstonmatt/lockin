@@ -19,7 +19,7 @@ The installer also links `lockin` into `~/.local/bin`. Add that directory to you
 
 For your first session:
 
-1. Open **Work** and choose **Add work**. Enter a task name or paste a link.
+1. Optionally, open **Work** and choose **Add work**. Enter a task name or paste a link. You can also add work after starting a session.
 2. In **Distractions**, choose websites and applications to block.
 3. Open a supported browser and click **Enable browser blocking**. Allow macOS Automation access when prompted.
 4. In **Focus**, set your target hours and start the session.
@@ -113,7 +113,7 @@ lockin history -n 14
 
 Tasks accept `"title"`, `"link"`, or `"title - link"`. A link alone gets a title derived from its URL without a network request. CLI task links do not import a dependency tree; use **Add work** in the app for imports.
 
-`status`, `tasks`, and `history` read `~/.lockin` directly and work while the app is closed. Session changes go through the app, which launches in the background if needed. The same session rules apply: starting requires at least one task and no pending review, breaks must be earned, and pauses and early ends need a reason. Reviews happen in the app.
+`status`, `tasks`, and `history` read `~/.lockin` directly and work while the app is closed. Session changes go through the app, which launches in the background if needed. Sessions can start without tasks. The same session rules apply: starting requires no pending review, breaks must be earned, and pauses and early ends need a reason. Reviews happen in the app.
 
 Exit codes are `0` for success, `1` for a refusal or failure, and `2` for invalid usage.
 

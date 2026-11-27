@@ -45,9 +45,6 @@ extension Store {
                 guard JournalState.isValidTarget(hours: hours) else { return .failure("Use a work target between 0 and 24 hours.") }
                 commitJournal { $0.hours = hours }
             }
-            if journal.plannedTasks.isEmpty {
-                return .failure("Add at least one task before starting: lockin task add \"…\"")
-            }
             start()
             guard active else { return refused("Lock In couldn't start the session.") }
             return .success("Started a \(WorkStats.format(journal.hours * 3600)) session.")

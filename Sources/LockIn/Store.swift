@@ -143,7 +143,6 @@ import LockInCore
         now = Date()
         guard journal.pendingReviewID == nil else { showReview = true; return }
         let todos = journal.plannedTasks
-        guard !todos.isEmpty else { showPlanner = true; message = "Add at least one task before starting."; return }
         guard todos.allSatisfy(\.validLink), JournalState.isValidTarget(hours: journal.hours) else {
             message = "Use a work target between 0 and 24 hours, and full web links (https://…) for tasks."; return
         }

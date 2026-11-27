@@ -17,10 +17,20 @@ final class RemoteCommandTests: XCTestCase {
         XCTAssertNil(RemoteChannel.decode(RemoteCommand.self, from: ["payload": "nonsense"]))
     }
 
+    @MainActor func testStartWithoutTasksThenAddWork() throws {
+        let store = makeStore()
+        let reply = store.perform(.start(hours: 2))
+        XCTAssertTrue(reply.ok, reply.message)
+        XCTAssertTrue(store.active)
+        XCTAssertEqual(store.workLog?.targetSeconds, 7200)
+        XCTAssertEqual(store.workLog?.todos.count, 0)
+        XCTAssertTrue(store.perform(.addTask(title: "Docs", link: "")).ok)
+        XCTAssertEqual(store.workLog?.todos.map(\.title), ["Docs"])
+        XCTAssertEqual(makeStore().workLog?.todos.map(\.title), ["Docs"])
+    }
+
     @MainActor func testPlanStartPauseBreakResume() throws {
         let store = makeStore()
-        XCTAssertFalse(store.perform(.start(hours: 2)).ok, "no tasks yet")
-        XCTAssertEqual(store.journal.hours, 2, "the target is kept for the plan")
         XCTAssertFalse(store.perform(.addTask(title: "Docs", link: "not a link")).ok)
         XCTAssertTrue(store.perform(.addTask(title: "Docs", link: "")).ok)
         XCTAssertEqual(store.journal.draft.map(\.title), ["Docs"], "the planner's blank row is dropped")
@@ -29,7 +39,7 @@ final class RemoteCommandTests: XCTestCase {
         XCTAssertTrue(store.perform(.updateTask(id: planned, title: "Write docs", link: "https://notion.so/x/Docs")).ok)
         XCTAssertEqual(makeStore().journal.draft.first?.title, "Write docs", "plan edits are saved")
 
-        XCTAssertTrue(store.perform(.start(hours: nil)).ok)
+        XCTAssertTrue(store.perform(.start(hours: 2)).ok)
         XCTAssertTrue(store.active)
         XCTAssertFalse(store.perform(.start(hours: nil)).ok, "already running")
         XCTAssertFalse(store.perform(.takeBreak).ok, "no break earned yet")

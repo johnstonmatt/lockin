@@ -141,7 +141,7 @@ struct SessionWorkSummary: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text(store.workLog == nil ? "Work for the next session" : "This session’s work").font(.headline)
                 let tasks = store.graphSessionTasks
-                Text(tasks.isEmpty ? "Choose work before starting your session." : "\(tasks.count) items · \(tasks.filter(\.completed).count) done")
+                Text(tasks.isEmpty ? "Add work whenever you’re ready." : "\(tasks.count) items · \(tasks.filter(\.completed).count) done")
                     .font(.callout).foregroundStyle(.secondary)
             }
             Spacer()

@@ -18,6 +18,23 @@ final class SessionFlowTests: XCTestCase {
     private func sessionURL(_ id: UUID) throws -> URL {
         try XCTUnwrap(try Storage.load(from: directory).sessionFiles[id], "no file for session \(id)")
     }
+    @MainActor func testEmptySessionPersistsAndRequiresReviewBeforeRestarting() throws {
+        let store = makeStore()
+        store.start()
+        XCTAssertTrue(store.active)
+        let id = try XCTUnwrap(store.workLog?.id)
+        XCTAssertTrue(try sessionFile(id).tasks.isEmpty)
+        XCTAssertEqual(makeStore().workLog?.id, id)
+        store.endSession(reason: "Done")
+        store.start()
+        XCTAssertFalse(store.active)
+        XCTAssertEqual(store.journal.pendingReviewID, id)
+        store.completeReview()
+        store.start()
+        XCTAssertTrue(store.active)
+        XCTAssertNotEqual(store.workLog?.id, id)
+    }
+
     @MainActor func testPlanPauseCompletionReviewAndDiskJournal() async throws {
         let store = makeStore()
         store.journal.draft = [Todo(title: "Test TODO")]
