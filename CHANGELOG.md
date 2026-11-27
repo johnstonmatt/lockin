@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.4.0](https://github.com/johnstonmatt/lockin/compare/v1.3.0...v1.4.0) (2026-11-27)
+
+
+### Features
+
+* name each item in the Refresh menu ([f6b3764](https://github.com/johnstonmatt/lockin/commit/f6b3764c1f0c7ec894dc5ac54486474efb4bf8c0))
+* show the Linear logo on Linear work ([08a2b7a](https://github.com/johnstonmatt/lockin/commit/08a2b7a26e784d9b9b21d75e7659c870807238dc))
+
 ## [1.3.0](https://github.com/johnstonmatt/lockin/compare/v1.2.4...v1.3.0) (2026-11-27)
 
 
