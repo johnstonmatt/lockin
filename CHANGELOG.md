@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.4](https://github.com/johnstonmatt/lockin/compare/v1.2.3...v1.2.4) (2026-11-27)
+
+
+### Bug Fixes
+
+* restart the app after in-app updates ([2d97ef9](https://github.com/johnstonmatt/lockin/commit/2d97ef9764aa8d932814444a4e6d15304e1532f1))
+
 ## [1.2.3](https://github.com/johnstonmatt/lockin/compare/v1.2.2...v1.2.3) (2026-11-27)
 
 
