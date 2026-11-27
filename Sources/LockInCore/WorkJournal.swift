@@ -18,12 +18,7 @@ public struct Todo: Identifiable, Equatable, Sendable {
     public init(title: String = "") { self.title = title }
     public static let linkRequirement = "Use a full web link, starting with https://"
     /// Blank, or an http(s) URL with a host. Surrounding whitespace is ignored, as it is trimmed on save.
-    public static func isValidLink(_ text: String) -> Bool {
-        if text.isBlank { return true }
-        guard let url = URL(string: text.trimmed), ["https", "http"].contains(url.scheme?.lowercased() ?? ""),
-              let host = url.host, !host.isEmpty else { return false }
-        return true
-    }
+    public static func isValidLink(_ text: String) -> Bool { text.isBlank || Link.webURL(text) != nil }
     public var validLink: Bool { Self.isValidLink(link) }
     /// The link as a URL, when one is set and valid.
     public var linkURL: URL? { link.isEmpty || !validLink ? nil : URL(string: link) }
@@ -38,10 +33,9 @@ public struct Todo: Identifiable, Equatable, Sendable {
         func words(_ slug: String) -> String { slug.replacingOccurrences(of: "-", with: " ").trimmed }
         switch LinkService(url: url) {
         case .linear?:
-            if let issue = parts.firstIndex(of: "issue"), issue + 1 < parts.count {
-                let key = parts[issue + 1]
-                let slug = issue + 2 < parts.count ? words(parts[issue + 2]) : ""
-                return slug.isEmpty ? key : "\(key) \(slug)"
+            if let issue = Link.linearIssue(text) {
+                let slug = words(issue.slug)
+                return slug.isEmpty ? issue.identifier : "\(issue.identifier) \(slug)"
             }
         case .github?:
             if parts.count >= 4, ["pull", "issues"].contains(parts[2]) { return "\(parts[0])/\(parts[1])#\(parts[3])" }
@@ -134,9 +128,18 @@ public struct WorkLog: Identifiable, Equatable, Sendable {
     /// Work left before the target. Overtime doesn't count toward it: it only starts once this reaches zero.
     public func remaining(at now: Date) -> Double { max(0, targetSeconds - seconds(.work, at: now)) }
     public func targetReached(at now: Date) -> Bool { remaining(at: now) <= 0 }
+    /// Whether Hardcore Mode (`locked`) still holds `session` open: until its target is reached. Overtime can be
+    /// ended, quit or updated freely. The app and `lockin status` both decide it here.
+    public static func hardcoreHolds(locked: Bool, session: WorkLog?, at now: Date) -> Bool {
+        locked && session?.targetReached(at: now) != true
+    }
     /// The phase to work in: regular work until the target is reached, overtime after.
     public func focusPhase(at now: Date) -> WorkPhase { targetReached(at: now) ? .overtime : .work }
-    public func breakBalance(at now: Date) -> Double { max(0, worked(at: now) / 12 - seconds(.break, at: now)) }
+    /// Break time earned per second worked: five minutes an hour.
+    public static let breakRate = 1.0 / 12
+    /// "5 min of break per hour worked", from `breakRate`.
+    public static var breakRateText: String { "\(WorkStats.format(3600 * breakRate)) of break per hour worked" }
+    public func breakBalance(at now: Date) -> Double { max(0, worked(at: now) * Self.breakRate - seconds(.break, at: now)) }
     public mutating func transition(to phase: WorkPhase, at now: Date, reason: String? = nil) {
         guard endedAt == nil, self.phase != phase else { return }
         intervals[intervals.count - 1].end = now

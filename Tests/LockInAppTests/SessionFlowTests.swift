@@ -91,18 +91,34 @@ final class SessionFlowTests: StoreTestCase {
         XCTAssertNotEqual(store.workLog?.id, id)
     }
     @MainActor func testStartNewDayIsBlockedInHardcoreMode() throws {
-        let store = makeStore()
-        store.journal.draft = [Todo(title: "Locked")]
-        store.lockSession = true
-        store.start()
+        let store = startedStore(tasks: ["Locked"], hardcore: true)
         store.endSession(reason: "Starting a new day")
         XCTAssertTrue(store.active)
         XCTAssertNotNil(store.workLog)
     }
+    @MainActor func testHardcoreAllowsPausesButNotQuitting() throws {
+        let store = startedStore(tasks: ["Locked"], hardcore: true)
+        XCTAssertFalse(store.shouldQuit())
+        XCTAssertEqual(store.message, Store.hardcoreQuitMessage)
+        XCTAssertFalse(store.showPause)
+        for request in [{ store.toggleFocus() }, { store.handleURL(URL(string: "lockin://pause")!) }] {
+            store.showPause = false
+            request()
+            XCTAssertTrue(store.showPause, "a pause is recorded, so Hardcore Mode allows it")
+        }
+        store.pause(reason: "Fire alarm")
+        XCTAssertEqual(store.workLog?.phase, .pause)
+        XCTAssertFalse(store.shouldQuit(), "Hardcore Mode holds until the target, paused or not")
+    }
+    @MainActor func testQuittingAsksForAPauseReasonFirst() throws {
+        let store = startedStore(tasks: ["Work"])
+        XCTAssertFalse(store.shouldQuit())
+        XCTAssertTrue(store.showPause)
+        store.pause(reason: "Done for now")
+        XCTAssertTrue(store.shouldQuit())
+    }
     @MainActor func testFinishIsRefusedBeforeTheTarget() throws {
-        let store = makeStore()
-        store.journal.draft = [Todo(title: "Work")]
-        store.start()
+        let store = startedStore(tasks: ["Work"])
         store.finishSession()
         XCTAssertTrue(store.active)
         XCTAssertEqual(store.workLog?.phase, .work)
@@ -122,9 +138,7 @@ final class SessionFlowTests: StoreTestCase {
         XCTAssertTrue(try XCTUnwrap(store.journal.sessions.last).finishedNaturally)
     }
     @MainActor func testTasksCanBeAddedMidSession() throws {
-        let store = makeStore()
-        store.journal.draft = [Todo(title: "Planned")]
-        store.start()
+        let store = startedStore(tasks: ["Planned"])
         let id = try XCTUnwrap(store.workLog?.id)
         XCTAssertThrowsError(try store.addWork("   "))
         XCTAssertThrowsError(try store.addWork(WorkInput(title: "Bad link", link: "notaurl")))
@@ -139,15 +153,13 @@ final class SessionFlowTests: StoreTestCase {
         XCTAssertEqual(restored.workLog?.todos.count, 3)
     }
     @MainActor func testTasksCanBeEditedMidSession() throws {
-        let store = makeStore()
-        store.journal.draft = [Todo(title: "Typo taks")]
-        store.start()
+        let store = startedStore(tasks: ["Typo taks"])
         let task = try XCTUnwrap(store.workLog?.todos.first)
-        XCTAssertFalse(store.updateTask(id: task.id, title: "  ", link: ""))
-        XCTAssertFalse(store.updateTask(id: task.id, title: "Fixed", link: "ftp://example.com/file"))
+        XCTAssertThrowsError(try store.renameWork(task.workIdentity, title: "  ", link: ""))
+        XCTAssertThrowsError(try store.renameWork(task.workIdentity, title: "Fixed", link: "ftp://example.com/file"))
         XCTAssertEqual(store.workLog?.todos.first?.title, "Typo taks")
-        XCTAssertFalse(store.updateTask(id: UUID(), title: "Unknown", link: ""))
-        XCTAssertTrue(store.updateTask(id: task.id, title: " Fixed task ", link: "https://linear.app/acme/issue/ABC-2"))
+        XCTAssertThrowsError(try store.renameWork(WorkNode.localID(), title: "Unknown", link: ""))
+        try store.renameWork(task.workIdentity, title: " Fixed task ", link: "https://linear.app/acme/issue/ABC-2")
         let edited = try XCTUnwrap(store.workLog?.todos.first)
         XCTAssertEqual(edited.id, task.id, "editing keeps the task's identity")
         XCTAssertEqual(edited.title, "Fixed task")
@@ -157,11 +169,11 @@ final class SessionFlowTests: StoreTestCase {
     }
     @MainActor func testUpdatePausesQuitsAndResumesOnRelaunch() throws {
         let store = makeStore()
-        var quits = 0; store.terminate = { quits += 1 }
+        let quits = countQuits(of: store)
         store.journal.draft = [Todo(title: "Work")]
         store.start()
         store.handleURL(URL(string: "lockin://update")!)
-        XCTAssertEqual(quits, 1)
+        XCTAssertEqual(quits(), 1)
         XCTAssertEqual(store.workLog?.phase, .pause)
         XCTAssertEqual(store.workLog?.intervals.last?.reason, "Updating Lock In")
         let relaunched = makeStore()
@@ -170,9 +182,7 @@ final class SessionFlowTests: StoreTestCase {
         XCTAssertEqual(relaunched.workLog?.intervals.filter { $0.kind == .pause }.count, 1)
     }
     @MainActor func testRelaunchCountsTimeTheAppWasNotRunningAsAPause() throws {
-        let store = makeStore()
-        store.journal.draft = [Todo(title: "Work")]
-        store.start()
+        let store = startedStore(tasks: ["Work"])
         let started = clock.now
         clock.advance(by: 15)
         let quick = makeStore()
@@ -189,12 +199,12 @@ final class SessionFlowTests: StoreTestCase {
     }
     @MainActor func testUpdateLeavesYourOwnPauseAlone() throws {
         let store = makeStore()
-        var quits = 0; store.terminate = { quits += 1 }
+        let quits = countQuits(of: store)
         store.journal.draft = [Todo(title: "Work")]
         store.start()
         store.pause(reason: "Lunch")
         store.quitForUpdate()
-        XCTAssertEqual(quits, 1)
+        XCTAssertEqual(quits(), 1)
         XCTAssertNil(store.journal.resumeAfterUpdateID)
         let relaunched = makeStore()
         XCTAssertEqual(relaunched.workLog?.phase, .pause)
@@ -202,29 +212,37 @@ final class SessionFlowTests: StoreTestCase {
     }
     @MainActor func testUpdateIsRefusedInHardcoreMode() throws {
         let store = makeStore()
-        var quits = 0; store.terminate = { quits += 1 }
+        let quits = countQuits(of: store)
         store.journal.draft = [Todo(title: "Work")]
         store.lockSession = true
         store.start()
         store.quitForUpdate()
-        XCTAssertEqual(quits, 0)
+        XCTAssertEqual(quits(), 0)
         XCTAssertEqual(store.workLog?.phase, .work)
         XCTAssertNotNil(store.message)
     }
+    @MainActor func testReviewEditsAreSavedOrRolledBack() throws {
+        let store = startedStore(tasks: ["Ship"])
+        store.endSession(reason: "Done for today")
+        store.reviewTasks[0].rollForward = true
+        XCTAssertEqual(makeStore().reviewTasks.first?.rollForward, true, "review edits are saved as they're made")
+        // A file where the sessions directory should be makes every write fail.
+        try FileManager.default.removeItem(at: Storage.sessionsDirectory(in: directory))
+        try Data().write(to: Storage.sessionsDirectory(in: directory))
+        store.reviewTasks.append(Todo(title: "Lost"))
+        XCTAssertEqual(store.reviewTasks.map(\.title), ["Ship"], "the review on screen matches the one on disk")
+        XCTAssertNotNil(store.message)
+    }
     @MainActor func testTasksCanBeDeletedMidSession() throws {
-        let store = makeStore()
-        store.journal.draft = [Todo(title: "Keep"), Todo(title: "Drop")]
-        store.start()
+        let store = startedStore(tasks: ["Keep", "Drop"])
         let drop = try XCTUnwrap(store.workLog?.todos.last)
-        XCTAssertFalse(store.deleteTask(id: UUID()))
-        XCTAssertTrue(store.deleteTask(id: drop.id))
+        XCTAssertThrowsError(try store.removeWork(WorkNode.localID()))
+        try store.removeWork(drop.workIdentity)
         XCTAssertEqual(store.workLog?.todos.map(\.title), ["Keep"])
         XCTAssertEqual(makeStore().workLog?.todos.map(\.title), ["Keep"], "the deletion is saved")
     }
     @MainActor func testFinishedSessionsAreNotRewrittenOnEveryCheckpoint() throws {
-        let store = makeStore()
-        store.journal.draft = [Todo(title: "First")]
-        store.start()
+        let store = startedStore(tasks: ["First"])
         let id = try XCTUnwrap(store.workLog?.id)
         store.endSession(reason: "Done")
         store.completeReview()
@@ -237,21 +255,17 @@ final class SessionFlowTests: StoreTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: try sessionURL(try XCTUnwrap(store.workLog?.id)).path))
     }
     @MainActor func testTasksCanBeTickedOffMidSession() throws {
-        let store = makeStore()
-        store.journal.draft = [Todo(title: "Ship")]
-        store.start()
+        let store = startedStore(tasks: ["Ship"])
         let task = try XCTUnwrap(store.workLog?.todos.first)
-        XCTAssertFalse(store.setTaskCompleted(id: UUID(), true))
-        XCTAssertTrue(store.setTaskCompleted(id: task.id, true))
+        XCTAssertThrowsError(try store.setWorkDone(WorkNode.localID(), done: true))
+        try store.setWorkDone(task.workIdentity, done: true)
         XCTAssertEqual(store.workLog?.todos.first?.completed, true)
         XCTAssertEqual(makeStore().workLog?.todos.first?.completed, true, "the tick is saved")
-        XCTAssertTrue(store.setTaskCompleted(id: task.id, false))
+        try store.setWorkDone(task.workIdentity, done: false)
         XCTAssertEqual(store.workLog?.todos.first?.completed, false)
     }
     @MainActor func testWakingResumesWhatSleepPaused() throws {
-        let store = makeStore()
-        store.journal.draft = [Todo(title: "Task")]
-        store.start()
+        let store = startedStore(tasks: ["Task"])
         store.pauseForSleep()
         XCTAssertEqual(store.workLog?.intervals.last?.reason, "Mac went to sleep")
         store.resumeAfterWake()
@@ -277,9 +291,7 @@ final class SessionFlowTests: StoreTestCase {
         XCTAssertEqual(try String(contentsOf: settings, encoding: .utf8), "{ broken")
     }
     @MainActor func testWakingLeavesOtherPausesAlone() throws {
-        let store = makeStore()
-        store.journal.draft = [Todo(title: "Task")]
-        store.start()
+        let store = startedStore(tasks: ["Task"])
         store.pause(reason: "Lunch")
         store.pauseForSleep()
         store.resumeAfterWake()

@@ -43,3 +43,11 @@ jobs:
 
       - name: Shell scripts parse
         run: for f in Scripts/*.sh install-app; do bash -n "$f"; done
+
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.x
+
+      # setup-release.ts only runs on a maintainer's machine, so CI is the one place it's checked.
+      - name: Release setup script checks
+        run: deno check Scripts/setup-release.ts && deno lint Scripts/setup-release.ts && deno fmt --check Scripts/setup-release.ts

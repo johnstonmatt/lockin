@@ -1,5 +1,6 @@
 import XCTest
 @testable import LockInCore
+import LockInTestSupport
 
 final class WorkStatsTests: XCTestCase {
     var calendar: Calendar = {

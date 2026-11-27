@@ -5,12 +5,32 @@ import Foundation
 /// - `sessions/*.json`: one file per session (`SessionFile`). These are the record of your work.
 ///   A file is named after when its session started, in local time to the minute, e.g. `2026-11-04T09-00.json`.
 ///   The name is for people: sessions are identified by the `id` inside, so a renamed file still loads.
+/// - `work-graph.json`: imported work and its relationships, which session tasks refer to (`WorkGraph`).
 /// The app writes these; the `lockin` CLI only reads them.
 public enum Storage {
     public static let directory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".lockin")
 
     public static func settingsFile(in directory: URL) -> URL { directory.appendingPathComponent("settings.json") }
     public static func sessionsDirectory(in directory: URL) -> URL { directory.appendingPathComponent("sessions", isDirectory: true) }
+    public static func workGraphFile(in directory: URL) -> URL { directory.appendingPathComponent("work-graph.json") }
+
+    /// Reads work-graph.json; nil if there isn't one yet. Like settings, an unreadable file throws rather than being
+    /// replaced.
+    public static func loadWorkGraph(from directory: URL) throws -> WorkGraph? {
+        let url = workGraphFile(in: directory)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        do {
+            let graph = try FileFormat.decode(WorkGraph.self, from: Data(contentsOf: url), supported: FileFormat.workGraphVersion)
+            var ids = Set<String>()
+            for node in graph.nodes where !ids.insert(node.id).inserted { throw FileFormat.Problem.duplicateID(node.id) }
+            return graph
+        } catch { throw ReadError(file: url, underlying: error) }
+    }
+
+    public static func saveWorkGraph(_ graph: WorkGraph, in directory: URL) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileFormat.data(graph).write(to: workGraphFile(in: directory), options: .atomic)
+    }
 
     /// Everything Lock In has saved.
     public struct Contents {

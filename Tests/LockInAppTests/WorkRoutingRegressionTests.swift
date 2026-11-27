@@ -1,6 +1,7 @@
 import XCTest
 import LockInCore
 @testable import LockIn
+import LockInTestSupport
 
 final class WorkRoutingRegressionTests: XCTestCase {
     static func fixture() -> WorkImportResult {
@@ -78,7 +79,7 @@ final class WorkRoutingRegressionTests: XCTestCase {
     }
 
     func testSiblingRegionsDoNotRouteAcrossEachOthersHeaders() {
-        var graph = WorkGraph(); graph.merge(Self.fixture())
+        let graph = WorkGraph(merging: Self.fixture())
         let presentation = WorkPresentation(graph: graph, filter: .all, collapsed: [])
         XCTAssertEqual(presentation.routes.count, graph.sequencing.edges.count)
         XCTAssertTrue(presentation.routes.values.allSatisfy { $0.points.count <= 4 })

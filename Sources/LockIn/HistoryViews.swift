@@ -3,35 +3,6 @@ import Charts
 import AppKit
 import LockInCore
 
-// Validated (dataviz validate_palette.js) against white and #1e1e1e card surfaces, all pairs.
-extension WorkPhase {
-    var color: Color {
-        switch self {
-        case .work: return Color(light: 0x1baf7a, dark: 0x199e70)
-        case .overtime: return Color(light: 0x8b5cf6, dark: 0x9d74f7)
-        case .break: return Color(light: 0x2a78d6, dark: 0x3987e5)
-        case .pause: return Color(light: 0xeb6834, dark: 0xd95926)
-        }
-    }
-    var label: String {
-        switch self {
-        case .work: return "Work"
-        case .overtime: return "Overtime"
-        case .break: return "Break"
-        case .pause: return "Pause"
-        }
-    }
-}
-
-extension Color {
-    init(light: UInt32, dark: UInt32) {
-        self.init(nsColor: NSColor(name: nil) { appearance in
-            let hex = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
-            return NSColor(srgbRed: CGFloat(hex >> 16 & 0xff) / 255, green: CGFloat(hex >> 8 & 0xff) / 255, blue: CGFloat(hex & 0xff) / 255, alpha: 1)
-        })
-    }
-}
-
 private let surface = Color(nsColor: .controlBackgroundColor)
 private func hours(_ seconds: Double) -> String { WorkStats.format(seconds) }
 

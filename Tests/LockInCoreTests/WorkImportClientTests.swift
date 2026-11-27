@@ -1,5 +1,6 @@
 import XCTest
 @testable import LockInCore
+import LockInTestSupport
 
 private actor LinearFixture {
     var calls: [(String, [String: String])] = []
@@ -7,25 +8,28 @@ private actor LinearFixture {
         ["id": id, "identifier": "ENG-\(id)", "title": "Issue \(id)", "url": "https://linear.app/test/issue/ENG-\(id)",
          "state": ["name": "In progress", "type": "started"]]
     }
-    func request(_ query: String, _ variables: [String: String]) throws -> Data {
-        calls.append((query, variables))
-        let id = variables["id"] == "ENG-1" ? "1" : variables["id"]!
-        if !query.contains("pageInfo") { return try JSONSerialization.data(withJSONObject: ["data": ["issue": issue(id)]]) }
-        let field = ["children", "attachments", "inverseRelations", "relations"].first { query.contains("\($0)(") }!
+    func page(_ field: String, id: String, after: String?) -> [String: Any] {
         var nodes: [[String: Any]] = []
         var more = false
         if field == "children" && id == "1" {
-            nodes = [issue(variables["after"] == nil ? "2" : "3")]
-            more = variables["after"] == nil
+            nodes = [issue(after == nil ? "2" : "3")]
+            more = after == nil
         } else if field == "attachments" && ["2", "3"].contains(id) {
             nodes = [["title": "Shared PR", "url": "https://github.com/acme/app/pull/12"],
                      ["title": "Document", "url": "https://example.com/readme"]]
         } else if field == "inverseRelations" && id == "2" {
             nodes = [["type": "blocks", "issue": issue("9"), "relatedIssue": issue("2")]]
         }
-        return try JSONSerialization.data(withJSONObject: ["data": ["issue": [field: [
-            "nodes": nodes, "pageInfo": ["hasNextPage": more, "endCursor": more ? "next-page" as Any : NSNull()]
-        ]]]])
+        return ["nodes": nodes, "pageInfo": ["hasNextPage": more, "endCursor": more ? "next-page" as Any : NSNull()]]
+    }
+    /// Answers an issue with the first page of each connection, or one later page of a single connection.
+    func request(_ query: String, _ variables: [String: String]) throws -> Data {
+        calls.append((query, variables))
+        let id = variables["id"] == "ENG-1" ? "1" : variables["id"]!
+        let fields = ["children", "attachments", "relations", "inverseRelations"].filter { query.contains("{\($0)(") || query.contains(" \($0)(") }
+        var object: [String: Any] = fields.count > 1 ? issue(id) : [:]
+        for field in fields { object[field] = page(field, id: id, after: variables["after"]) }
+        return try JSONSerialization.data(withJSONObject: ["data": ["issue": object]])
     }
 }
 
@@ -86,6 +90,7 @@ final class WorkImportClientTests: XCTestCase {
         let calls = await fixture.calls
         XCTAssertTrue(calls.contains { $0.1["after"] == "next-page" })
         XCTAssertFalse(calls.contains { $0.1["id"] == "9" }, "context issues must not recursively expand")
+        XCTAssertEqual(calls.count, 4, "one request per issue, plus one for the second page of children")
     }
     func testLinearGraphQLErrorsRejectPartialResponses() async {
         let client = LinearGraphClient { _, _ in Data(#"{"data":{"issue":null},"errors":[{"message":"denied"}]}"#.utf8) }
@@ -146,7 +151,7 @@ final class WorkImportClientTests: XCTestCase {
     }
     func testEnrichmentFetchesReadinessAndDoesNotRetainStaleResultsOnFailure() async throws {
         let fixture = GitHubFixture()
-        let response = Data(#"{"data":{"repository":{"pullRequest":{"headRefOid":"abc","isDraft":false,"reviewDecision":"APPROVED","mergeStateStatus":"CLEAN","commits":{"nodes":[{"commit":{"oid":"abc","statusCheckRollup":{"contexts":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}}]}}}}}"#.utf8)
+        let response = try readinessResponse()
         let client = GitHubGraphClient(request: { route in try await fixture.request(route) },
                                        readinessRequest: { _ in response })
         let result = try await client.enrich(seed())
@@ -154,7 +159,7 @@ final class WorkImportClientTests: XCTestCase {
         XCTAssertEqual(ready.displayStatus, .ready)
         XCTAssertNil(result.nodes.first { $0.resolved }?.readiness, "merged PRs need no review query")
         let unavailable = GitHubGraphClient(request: { route in try await fixture.request(route) },
-                                            readinessRequest: { _ in throw WorkImportError("Access denied") })
+                                            readinessRequest: { _ in throw LockInError("Access denied") })
         let refreshed = try await unavailable.enrich(result)
         XCTAssertNil(refreshed.nodes.first { $0.id == ready.id }?.readiness)
         XCTAssertFalse(refreshed.snapshot.warnings.isEmpty)

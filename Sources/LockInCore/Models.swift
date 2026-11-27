@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 /// The raw values are the labels shown in the app; files use `ProfileRecord.Mode`.
 public enum BlockingMode: String, CaseIterable, Sendable {
@@ -52,4 +53,22 @@ public struct SavedState: Equatable {
     public var selectedProfileID: UUID?
     public var session: FocusSession?
     public init() {}
+}
+
+extension Profile {
+    /// Gates preference changes behind `password`, stored as a salted digest.
+    public mutating func setPassword(_ password: String, salt: String = UUID().uuidString) {
+        passwordSalt = salt
+        passwordHash = Self.digest(password, salt: salt)
+    }
+    public func passwordMatches(_ password: String) -> Bool {
+        guard let passwordSalt, let passwordHash else { return false }
+        return Self.digest(password, salt: passwordSalt) == passwordHash
+    }
+    private static func digest(_ password: String, salt: String) -> String {
+        // Repeated hashing slows offline guessing; this is a local preference gate, not a security boundary.
+        var data = Data((salt + password).utf8)
+        for _ in 0..<20_000 { data = Data(SHA256.hash(data: data)) }
+        return data.base64EncodedString()
+    }
 }

@@ -4,32 +4,42 @@ public struct PullRequestReadiness: Codable, Equatable, Sendable {
     public enum Status: String, Codable, Sendable {
         case passing = "Passing", failing = "Failing", ready = "Ready", pending = "Pending", draft = "Draft"
     }
-    public var checks: String?
+    /// The required checks' combined result, as stored in work-graph.json.
+    public enum Checks: String, Codable, Sendable {
+        case success = "SUCCESS", failure = "FAILURE", pending = "PENDING"
+        /// Unknown values, e.g. from a hand-edited file, read as pending; ERROR reads as a failure.
+        public init(from decoder: Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            self = raw == "ERROR" ? .failure : Checks(rawValue: raw) ?? .pending
+        }
+    }
+    /// Nil when no check result has been confirmed.
+    public var checks: Checks?
     public var reviewDecision: String?
     public var mergeState: String
     public var isDraft: Bool
     public var headOID: String
     /// Spelled out so renaming a property can't change work-graph.json.
     enum CodingKeys: String, CodingKey { case checks, reviewDecision, mergeState, isDraft, headOID }
-    public init(checks: String?, reviewDecision: String?, mergeState: String, isDraft: Bool, headOID: String) {
+    public init(checks: Checks?, reviewDecision: String?, mergeState: String, isDraft: Bool, headOID: String) {
         self.checks = checks; self.reviewDecision = reviewDecision; self.mergeState = mergeState
         self.isDraft = isDraft; self.headOID = headOID
     }
     public var status: Status {
         if isDraft { return .draft }
-        if checks == "FAILURE" || checks == "ERROR" { return .failing }
+        if checks == .failure { return .failing }
         // UNSTABLE is mergeable with non-passing checks; only required checks gate readiness.
         let mergeable = mergeState == "CLEAN" || mergeState == "UNSTABLE"
         let reviewsSatisfied = reviewDecision == "APPROVED" || reviewDecision == nil
-        if mergeable && reviewsSatisfied && (checks == "SUCCESS" || checks == nil) { return .ready }
-        if checks == "SUCCESS" { return .passing }
+        if mergeable && reviewsSatisfied && (checks == .success || checks == nil) { return .ready }
+        if checks == .success { return .passing }
         return .pending
     }
     public var explanation: String {
         if isDraft { return "This PR is a draft. Mark it ready for review in GitHub when it is ready." }
         if status == .failing { return "One or more required checks failed. Required reviews cannot override failing checks." }
         if status == .ready { return "Checks and required reviews are satisfied. GitHub reports no outstanding merge gates. Graph prerequisites are tracked separately." }
-        let checkMessage = checks == "SUCCESS" ? "Required checks are passing." : checks == nil
+        let checkMessage = checks == .success ? "Required checks are passing." : checks == nil
             ? "No check result has been confirmed." : "Required checks are pending or still running."
         let reviewMessage: String
         switch reviewDecision {

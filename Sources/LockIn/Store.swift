@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import CryptoKit
 import LockInCore
 
 @MainActor final class Store: ObservableObject {
@@ -19,7 +18,6 @@ import LockInCore
     @Published var showPause = false
     @Published var showEndSession = false
     @Published var showReview = false
-    @Published var showPlanner = false
     /// False when saved data couldn't be read: saving over it would lose it, so nothing is saved until it's fixed.
     private var writable = true
     private var lastCheckpoint = Date.distantPast
@@ -33,6 +31,7 @@ import LockInCore
     /// saving the review replaces the plan, so earlier changes would be lost.
     var canPlanWork: Bool { workLog != nil || journal.pendingReviewID == nil }
     static let reviewFirstMessage = "Review your last session in Lock In before planning the next one."
+    static let hardcoreQuitMessage = "Hardcore Mode is active. Lock In can quit or update once this session reaches its target."
     var reviewIndex: Int? { journal.sessions.firstIndex { $0.id == journal.pendingReviewID } }
     let blocker = Blocker()
     private var timer: Timer?
@@ -89,7 +88,7 @@ import LockInCore
             Task { @MainActor in self?.resumeAfterWake() }
         }
         restoreSession(checkpoint: contents?.checkpoint)
-        normalizeSessionEntries()
+        attempt(normalizeSessionEntries)
         syncLocalWork()
         tick()
         if let channel { remoteControl = RemoteControl(store: self, channel: channel) }
@@ -101,20 +100,20 @@ import LockInCore
     /// Reads work-graph.json, or builds it from the journal's tasks when there isn't one yet.
     private func loadWorkGraph() {
         do {
-            if let graph = try WorkGraphStorage.load(from: directory) { workGraph = graph; return }
+            if let graph = try Storage.loadWorkGraph(from: directory) { workGraph = graph; return }
             let current = journal.openSession?.todos ?? []
             let review = journal.sessions.first { $0.id == journal.pendingReviewID }?.todos ?? []
             workGraph = WorkGraph.migrating(journal.draft + current + review)
-            if !workGraph.nodes.isEmpty { try WorkGraphStorage.save(workGraph, in: directory) }
+            if !workGraph.nodes.isEmpty { try Storage.saveWorkGraph(workGraph, in: directory) }
         } catch {
             workGraphWritable = false
-            workImportMessage = "Couldn't read or save work-graph.json: \(error.localizedDescription). The file is left unchanged."
+            workImportMessage = "\(error.localizedDescription) Work can't be changed until this is fixed, so the file is left as it is."
         }
     }
     var profile: Profile { state.profiles.first { $0.id == state.selectedProfileID } ?? state.profiles[0] }
     var active: Bool { state.session != nil }
     /// Hardcore Mode holds until the work target is reached; overtime can be ended, quit or updated freely.
-    var locked: Bool { state.session?.locked == true && workLog?.targetReached(at: now) != true }
+    var locked: Bool { WorkLog.hardcoreHolds(locked: state.session?.locked == true, session: workLog, at: now) }
     /// Whether the open session has reached its target, so it can be finished (and is counting overtime).
     var targetReached: Bool { workLog?.targetReached(at: now) == true }
     var canEdit: Bool { !locked && (profile.passwordHash == nil || unlockedProfiles.contains(profile.id)) && !active }
@@ -141,6 +140,8 @@ import LockInCore
         state.profiles.removeAll { $0.id == id }
         state.selectedProfileID = state.profiles[0].id; persist()
     }
+    /// During a session only a block list can grow, as it only gets stricter; otherwise the profile must be editable.
+    var canAddWebsite: Bool { state.session.map { $0.profile.blockingMode == .block } ?? canEdit }
     func addWebsite(_ raw: String) {
         guard let rule = WebsiteRule.normalize(raw) else { message = "Enter a domain or website URL, such as reddit.com or youtube.com/shorts."; return }
         // Locked block lists can only become stricter. Allow lists cannot be expanded.
@@ -154,22 +155,35 @@ import LockInCore
     func start() {
         guard !active, writable else { return }
         now = clock()
-        guard journal.pendingReviewID == nil else { showReview = true; return }
+        guard journal.pendingReviewID == nil else { presentReview(); return }
         let todos = journal.plannedTasks
         guard todos.allSatisfy(\.validLink), JournalState.isValidTarget(hours: journal.hours) else {
             message = "Use a work target between 0 and 24 hours, and full web links (https://…) for tasks."; return
         }
         let log = WorkLog(todos: todos, targetSeconds: journal.hours * 3600, now: clock())
-        guard commitJournal({ $0.sessions.append(log) }) else { return }
+        guard attempt({ try commitJournal { $0.sessions.append(log) } }) else { return }
         state.session = FocusSession(profile: profile, locked: lockSession)
-        showPlanner = false; runHook(.start); persist(); tick()
+        runHook(.start); persist(); tick()
     }
-    /// The Focus menu command and the global shortcut: start a session, or ask why you're stopping the running one.
-    func toggleFocus() { active ? stop() : start() }
-    func stop() {
-        guard !locked, workLog != nil else { return }
-        // Early exits must leave an explanation just like any other unearned interruption.
-        showPause = true
+    /// The Focus menu command and the global shortcut: start a session, or ask why you're pausing the running one.
+    func toggleFocus() { active ? requestPause() : start() }
+    /// Asks for a pause reason: every interruption leaves an explanation. Hardcore Mode allows pauses, since they
+    /// are recorded; it only holds the session open until its target.
+    func requestPause() {
+        guard workLog != nil else { return }
+        showPause = true; NSApp?.showMainWindow()
+    }
+    /// Brings up the pending review in the main window.
+    func presentReview() {
+        guard journal.pendingReviewID != nil else { return }
+        page = .focus; showReview = true; NSApp?.showMainWindow()
+    }
+    /// Whether Lock In can quit now. Hardcore Mode refuses until the target is reached; a running work or break
+    /// phase asks for a pause reason first, so the time away is recorded.
+    func shouldQuit() -> Bool {
+        if locked { message = Self.hardcoreQuitMessage; return false }
+        if let log = workLog, log.phase != .pause { requestPause(); return false }
+        persist(); return true
     }
     func pause(reason: String) {
         if changePhase(hook: .pause, { $0.pause(reason: reason, at: $1) }) { showPause = false }
@@ -196,7 +210,7 @@ import LockInCore
     func takeBreak() {
         guard workLog != nil else { return }
         if !changePhase(hook: .break, { $0.takeBreak(at: $1) }), workLog != nil {
-            message = "Work earns five minutes of break per hour. No break time is available yet."
+            message = "Work earns \(WorkLog.breakRateText). No break time is available yet."
         }
     }
     func resume() {
@@ -212,56 +226,23 @@ import LockInCore
         if journal.sessions[index].phase?.isFocused != true { blocker.deactivate() }
         runHook(hook); persist(); return true
     }
-    /// Renames or relinks a task in the running session. Invalid edits are rejected and leave the task unchanged.
-    @discardableResult func updateTask(id: UUID, title: String, link: String) -> Bool {
-        editTasks { todos in
-            guard let index = todos.firstIndex(where: { $0.id == id }) else { return nil }
-            todos[index] = todos[index].with(title: title, link: link); return index
-        }
-    }
-    /// Marks a task in the running session done or not done.
-    @discardableResult func setTaskCompleted(id: UUID, _ completed: Bool) -> Bool {
-        guard let index = journal.openSessionIndex else { return false }
-        var todos = journal.sessions[index].todos
-        guard let task = todos.firstIndex(where: { $0.id == id }) else { return false }
-        todos[task].completed = completed
-        return replaceTasks(todos, inSession: index)
-    }
-    /// Records an event on the running session, e.g. from `lockin event add`. Returns false if the text is blank.
-    @discardableResult func addEvent(_ text: String) -> Bool {
-        guard let index = journal.openSessionIndex else { return false }
+    /// Records an event on the running session, e.g. from `lockin event add`.
+    func addEvent(_ text: String) throws {
+        guard let index = journal.openSessionIndex else { throw LockInError("No session is running. Events are recorded on the running session.") }
         var log = journal.sessions[index]
-        guard log.addEvent(text, at: clock()) else { return false }
-        return commitJournal { $0.sessions[index] = log }
-    }
-    /// Removes a task from the running session. Its record goes too: it won't appear in the review or journal.
-    @discardableResult func deleteTask(id: UUID) -> Bool {
-        guard let index = journal.openSessionIndex, journal.sessions[index].todos.contains(where: { $0.id == id }) else { return false }
-        return replaceTasks(journal.sessions[index].todos.filter { $0.id != id }, inSession: index)
-    }
-    /// Applies an edit to the running session's tasks; `edit` returns the index of the changed task.
-    /// The edit is rejected if that task is invalid.
-    private func editTasks(_ edit: (inout [Todo]) -> Int?) -> Bool {
-        guard let index = journal.openSessionIndex else { return false }
-        var todos = journal.sessions[index].todos
-        guard let changed = edit(&todos), todos[changed].hasTitle else { return false }
-        guard todos[changed].validLink else { message = Todo.linkRequirement; return false }
-        return replaceTasks(todos, inSession: index)
-    }
-    /// Saves a session's new task list, rolling back if the journal can't be written.
-    private func replaceTasks(_ todos: [Todo], inSession index: Int) -> Bool {
-        commitJournal { $0.sessions[index].todos = todos }
+        guard log.addEvent(text, at: clock()) else { throw LockInError("An event needs some text.") }
+        try commitJournal { $0.sessions[index] = log }
     }
     /// `lockin://update`, sent by Scripts/install.sh (and so by `lockin upgrade`): pauses a working or break phase,
     /// remembers to resume after relaunch, then quits.
     /// A pause you started yourself is left alone. Hardcore Mode refuses, as it does for any quit.
     func quitForUpdate() {
-        guard !locked else { message = "Hardcore Mode is active. Lock In can be updated when this session ends."; return }
+        guard !locked else { message = Self.hardcoreQuitMessage; return }
         if let log = workLog, log.phase != .pause {
             pause(reason: "Updating Lock In")
             if let log = workLog {
                 guard log.phase == .pause else { return }
-                guard commitJournal({ $0.resumeAfterUpdateID = log.intervals.last?.id }) else { return }
+                guard attempt({ try commitJournal { $0.resumeAfterUpdateID = log.intervals.last?.id } }) else { return }
             }
         }
         terminate()
@@ -283,10 +264,11 @@ import LockInCore
         // The review is presented once the end-session sheet has dismissed (see MainView); swapping sheets in one update is unreliable.
         conclude(journal.sessions[index], presentReview: !showEndSession)
     }
-    private func conclude(_ log: WorkLog, presentReview: Bool = true) {
+    private func conclude(_ log: WorkLog, presentReview present: Bool = true) {
         runHook(.stop); state.session = nil; blocker.deactivate()
-        journal.pendingReviewID = log.id; showReview = presentReview; showPause = false; showEndSession = false; page = .focus
-        persist(); NSApp?.showMainWindow()
+        journal.pendingReviewID = log.id; showPause = false; showEndSession = false
+        persist()
+        if present { presentReview() } else { page = .focus; NSApp?.showMainWindow() }
     }
     func tick() {
         now = clock()
@@ -334,49 +316,63 @@ import LockInCore
     }
     /// Saves ~/.lockin: settings, and each session file that changed. The open session's file is always written,
     /// since it carries the checkpoint.
-    @discardableResult func persist() -> Bool {
-        guard writable else { return false }
-        do {
-            try writer.write(preferences: state, journal: journal, checkpoint: clock())
-            lastCheckpoint = clock()
-        } catch { message = "Could not save to ~/.lockin: \(error.localizedDescription)"; return false }
-        return true
+    func save() throws {
+        guard writable else { throw LockInError("Lock In isn't saving anything until the problem reading ~/.lockin is fixed.") }
+        do { try writer.write(preferences: state, journal: journal, checkpoint: clock()) }
+        catch { throw LockInError("Could not save to ~/.lockin: \(error.localizedDescription)") }
+        lastCheckpoint = clock()
+    }
+    /// `save` where the failure can only be shown in the window. While saved data is unreadable, that problem's
+    /// message stays on screen instead.
+    @discardableResult func persist() -> Bool { writable && attempt(save) }
+    /// Runs `body`, showing its error in the window if it throws.
+    @discardableResult func attempt(_ body: () throws -> Void) -> Bool {
+        do { try body(); return true } catch { message = error.localizedDescription; return false }
     }
     /// Applies a journal change and saves it. If the change throws or the journal can't be written,
     /// the journal is put back as it was, so what's on screen always matches what's on disk.
-    @discardableResult func commitJournal(_ change: (inout JournalState) throws -> Void) rethrows -> Bool {
+    func commitJournal(_ change: (inout JournalState) throws -> Void) throws {
         let previous = journal
-        do { try change(&journal) } catch { journal = previous; throw error }
-        journal.normalizeWorkEntries(using: workGraph)
-        guard persist() else { journal = previous; return false }
+        do {
+            try change(&journal)
+            journal.normalizeWorkEntries(using: workGraph)
+            try save()
+        } catch { journal = previous; throw error }
         syncLocalWork()
-        return true
+    }
+    /// The plan's work target, saved as it's edited.
+    var plannedHours: Double {
+        get { journal.hours }
+        set { if newValue.isFinite { attempt { try commitJournal { $0.hours = newValue } } } }
+    }
+    /// The pending review's tasks, saved as they're edited so a review survives quitting.
+    var reviewTasks: [Todo] {
+        get { reviewIndex.map { journal.sessions[$0].todos } ?? [] }
+        set {
+            guard let index = reviewIndex else { return }
+            attempt { try commitJournal { $0.sessions[index].todos = newValue } }
+        }
     }
     func completeReview() {
         guard let index = reviewIndex, journal.sessions[index].todos.allSatisfy(\.validLink) else { message = "Check the task links before saving."; return }
-        let saved = commitJournal { journal in
-            journal.setPlan(journal.sessions[index].rolledTodos)
-            journal.sessions[index].reviewed = true
-            journal.pendingReviewID = nil
+        let saved = attempt {
+            try commitJournal { journal in
+                journal.setPlan(journal.sessions[index].rolledTodos)
+                journal.sessions[index].reviewed = true
+                journal.pendingReviewID = nil
+            }
         }
-        if saved { showReview = false; showPlanner = true }
+        if saved { showReview = false }
     }
     func setPassword(_ password: String) {
         guard !password.isEmpty else { return }
-        let salt = UUID().uuidString
-        updateProfile { $0.passwordSalt = salt; $0.passwordHash = Self.digest(password, salt: salt) }
+        updateProfile { $0.setPassword(password) }
         unlockedProfiles.remove(profile.id)
     }
     func unlock(_ password: String) {
-        guard let salt = profile.passwordSalt, let hash = profile.passwordHash else { return }
-        if Self.digest(password, salt: salt) == hash { unlockedProfiles.insert(profile.id) }
+        guard profile.passwordHash != nil else { return }
+        if profile.passwordMatches(password) { unlockedProfiles.insert(profile.id) }
         else { message = "That password didn’t match." }
-    }
-    private static func digest(_ password: String, salt: String) -> String {
-        // Repeated hashing slows offline guessing; this is a local preference gate, not a security boundary.
-        var data = Data((salt + password).utf8)
-        for _ in 0..<20_000 { data = Data(SHA256.hash(data: data)) }
-        return data.base64EncodedString()
     }
     func runHook(_ event: HookEvent) {
         guard let session = state.session, let script = session.profile.hooks[event.rawValue], !script.isBlank else { return }
@@ -392,7 +388,7 @@ import LockInCore
         guard url.scheme == "lockin" else { return }
         switch url.host {
         case "start": start()
-        case "stop", "pause": showPause = active
+        case "stop", "pause": requestPause()
         case "finish": finishSession()
         case "break": takeBreak()
         case "resume": resume()

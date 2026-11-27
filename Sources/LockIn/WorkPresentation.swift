@@ -52,18 +52,17 @@ struct WorkPresentation {
         memberships = graph.memberships
         incoming = Dictionary(grouping: dependencies, by: \.to)
         outgoing = Dictionary(grouping: dependencies, by: \.from)
-        let unresolved = dependencies.filter { nodes[$0.from]?.resolved != true }
+        let unresolved = graph.blocking(dependencies)
         blockerCounts = Dictionary(grouping: unresolved, by: \.to).mapValues(\.count)
         let hierarchy = WorkHierarchy(graph: graph)
         rows = WorkListLayout(graph: graph, filter: filter, collapsed: collapsed, hierarchy: hierarchy).rows
         layout = WorkGraphLayout(graph: graph, filter: filter, collapsed: collapsed,
                                  hierarchy: hierarchy, dependencies: dependencies)
-        routes = WorkEdgeRoute.plan(edges: dependencies, layout: layout)
-        var containerLabels: [String: String] = [:]
-        for edge in memberships where edge.kind == .contains && containerLabels[edge.to] == nil {
-            if let label = nodes[edge.from]?.label { containerLabels[edge.to] = label }
+        routes = layout.routes
+        // The same container the card is drawn inside.
+        containerLabels = hierarchy.parent.reduce(into: [:]) { labels, link in
+            if nodes[link.key]?.kind == .linear, let label = nodes[link.value]?.label { labels[link.key] = label }
         }
-        self.containerLabels = containerLabels
         regionSummaries = Dictionary(uniqueKeysWithValues: layout.groups.map { region in
             let members = region.memberIDs.compactMap { nodes[$0] }
             let prerequisites = Set(unresolved.filter { region.memberIDs.contains($0.to) || $0.to == region.id }.map(\.from))
@@ -85,4 +84,6 @@ enum WorkGeometry {
     static let arrowApproach: CGFloat = 18
     static let laneSpacing: CGFloat = 10
     static let columnGap: CGFloat = 48
+    /// Context work is dimmed so the session's own work stands out.
+    static let contextOpacity = 0.58
 }

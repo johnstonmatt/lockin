@@ -1,5 +1,28 @@
-import Foundation
+import SwiftUI
 import LockInCore
+
+/// Where connectors are routed: the laid-out cards, and the card each node appears as.
+struct RoutingSpace {
+    var frames: [String: CGRect]
+    var representatives: [String: String]
+
+    /// Cards a connector between `from` and `to` must route around.
+    func obstacles(between from: String?, and to: String?) -> [CGRect] {
+        frames.filter { $0.key != from && $0.key != to }.map(\.value)
+    }
+}
+
+/// What routing avoids, most to least: running through a card, crossing another connector, ending beside another
+/// connector's arrowhead, and running alongside one. Length in points breaks ties.
+enum RouteCost {
+    static let collision: CGFloat = 100_000_000
+    static let crossing: CGFloat = 1_000_000
+    static let sharedJunction: CGFloat = 20_000
+    static let sharedLane: CGFloat = 10_000
+
+    /// Arrowheads this close, horizontally and vertically, read as one junction.
+    static func sharesJunction(_ a: CGPoint, _ b: CGPoint) -> Bool { abs(a.x - b.x) < 64 && abs(a.y - b.y) < 14 }
+}
 
 struct WorkEdgeRoute {
     var points: [CGPoint]
@@ -44,18 +67,16 @@ struct WorkEdgeRoute {
                 ? 0 : (24 + abs(points[0].y - source.midY) + abs(points[points.count - 1].y - target.midY))
             if let endpoint = points.last {
                 for route in occupied {
-                    if let other = route.last, abs(endpoint.x - other.x) < 64, abs(endpoint.y - other.y) < 14 {
-                        cost += 20_000
-                    }
+                    if let other = route.last, RouteCost.sharesJunction(endpoint, other) { cost += RouteCost.sharedJunction }
                 }
             }
             for (a, b) in zip(points, points.dropFirst()) {
                 cost += abs(a.x - b.x) + abs(a.y - b.y)
-                cost += CGFloat(Self.collisions(a, b, nearby)) * 1_000_000
+                cost += CGFloat(Self.collisions(a, b, nearby)) * RouteCost.collision
                 for route in occupied {
                     for (c, d) in zip(route, route.dropFirst()) {
-                        if Self.sharesLane(a, b, c, d) { cost += 10_000 }
-                        if Self.crosses(a, b, c, d) { cost += 100_000 }
+                        if Self.sharesLane(a, b, c, d) { cost += RouteCost.sharedLane }
+                        if Self.crosses(a, b, c, d) { cost += RouteCost.crossing }
                     }
                 }
             }
@@ -65,7 +86,7 @@ struct WorkEdgeRoute {
         points = points.enumerated().filter { $0.offset == 0 || $0.element != points[$0.offset - 1] }.map(\.element)
     }
 
-    static func plan(edges: [WorkEdge], layout: WorkGraphLayout) -> [String: WorkEdgeRoute] {
+    static func plan(edges: [WorkEdge], layout: RoutingSpace) -> [String: WorkEdgeRoute] {
         let edges = edges.sorted { $0.id < $1.id }
         var best: [String: WorkEdgeRoute] = [:]
         var bestCost = CGFloat.infinity
@@ -114,17 +135,17 @@ struct WorkEdgeRoute {
         return best
     }
 
-    static func obstructionCost(routes: [String: WorkEdgeRoute], edges: [WorkEdge], layout: WorkGraphLayout) -> CGFloat {
+    static func obstructionCost(routes: [String: WorkEdgeRoute], edges: [WorkEdge], layout: RoutingSpace) -> CGFloat {
         let count = edges.reduce(0) { total, edge in total + (routes[edge.id].map { collisions($0, edge: edge, layout: layout) } ?? 0) }
-        return CGFloat(count) * 100_000_000
+        return CGFloat(count) * RouteCost.collision
     }
 
-    private static func cost(_ routes: [String: WorkEdgeRoute], edges: [WorkEdge], layout: WorkGraphLayout) -> CGFloat {
+    private static func cost(_ routes: [String: WorkEdgeRoute], edges: [WorkEdge], layout: RoutingSpace) -> CGFloat {
         totalCost(edges.compactMap { routes[$0.id]?.points }) + obstructionCost(routes: routes, edges: edges, layout: layout)
     }
 
     /// Segment-card overlaps along `route`, against every card except the edge's own ends.
-    private static func collisions(_ route: WorkEdgeRoute, edge: WorkEdge, layout: WorkGraphLayout) -> Int {
+    private static func collisions(_ route: WorkEdgeRoute, edge: WorkEdge, layout: RoutingSpace) -> Int {
         let obstacles = layout.obstacles(between: layout.representatives[edge.from], and: layout.representatives[edge.to])
         return zip(route.points, route.points.dropFirst()).reduce(0) { $0 + collisions($1.0, $1.1, obstacles) }
     }
@@ -137,12 +158,15 @@ struct WorkEdgeRoute {
     private static func totalCost(_ routes: [[CGPoint]]) -> CGFloat {
         var cost: CGFloat = 0
         for (index, route) in routes.enumerated() {
+            for other in routes.dropFirst(index + 1) {
+                if let end = route.last, let otherEnd = other.last, RouteCost.sharesJunction(end, otherEnd) { cost += RouteCost.sharedJunction }
+            }
             for (a, b) in zip(route, route.dropFirst()) {
                 cost += abs(a.x - b.x) + abs(a.y - b.y)
                 for other in routes.dropFirst(index + 1) {
                     for (c, d) in zip(other, other.dropFirst()) {
-                        if crosses(a, b, c, d) { cost += 1_000_000 }
-                        if sharesLane(a, b, c, d) { cost += 10_000 }
+                        if crosses(a, b, c, d) { cost += RouteCost.crossing }
+                        if sharesLane(a, b, c, d) { cost += RouteCost.sharedLane }
                     }
                 }
             }
@@ -169,6 +193,45 @@ struct WorkEdgeRoute {
             return abs(a.y - c.y) < 14 && min(max(a.x, b.x), max(c.x, d.x)) > max(min(a.x, b.x), min(c.x, d.x))
         }
         return false
+    }
+
+    /// The connector with corners rounded to `WorkGeometry.cornerRadius`.
+    var path: Path {
+        var path = Path()
+        guard let start = points.first else { return path }
+        path.move(to: start)
+        for index in 1..<points.count {
+            let corner = points[index]
+            guard index + 1 < points.count else { path.addLine(to: corner); break }
+            let before = points[index - 1], after = points[index + 1]
+            let incoming = hypot(corner.x - before.x, corner.y - before.y)
+            let outgoing = hypot(after.x - corner.x, after.y - corner.y)
+            let radius = min(WorkGeometry.cornerRadius, incoming / 2, outgoing / 2)
+            guard radius > 0 else { continue }
+            let entry = CGPoint(x: corner.x + (before.x - corner.x) * radius / incoming,
+                                y: corner.y + (before.y - corner.y) * radius / incoming)
+            let exit = CGPoint(x: corner.x + (after.x - corner.x) * radius / outgoing,
+                               y: corner.y + (after.y - corner.y) * radius / outgoing)
+            path.addLine(to: entry)
+            path.addQuadCurve(to: exit, control: corner)
+        }
+        return path
+    }
+
+    /// An open arrowhead on the connector's last segment.
+    var arrowhead: Path? {
+        guard points.count > 1, let end = points.last else { return nil }
+        let before = points[points.count - 2]
+        let length = hypot(end.x - before.x, end.y - before.y)
+        guard length > 0 else { return nil }
+        let dx = (end.x - before.x) / length, dy = (end.y - before.y) / length
+        let back = CGPoint(x: end.x - dx * WorkGeometry.arrowLength, y: end.y - dy * WorkGeometry.arrowLength)
+        let spread = CGPoint(x: dy * WorkGeometry.arrowHalfWidth, y: dx * WorkGeometry.arrowHalfWidth)
+        var arrow = Path()
+        arrow.move(to: CGPoint(x: back.x - spread.x, y: back.y + spread.y))
+        arrow.addLine(to: end)
+        arrow.addLine(to: CGPoint(x: back.x + spread.x, y: back.y - spread.y))
+        return arrow
     }
 
     static func intersects(_ a: CGPoint, _ b: CGPoint, _ rect: CGRect) -> Bool {

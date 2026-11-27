@@ -5,23 +5,13 @@ import LockInCore
 /// That's the same script `./install-app` runs, so an upgrade pauses and resumes a session exactly like a local install.
 enum Upgrade {
     static let installedApp = URL(fileURLWithPath: "/Applications/Lock In.app")
-    #if arch(arm64)
-    static let architecture = "arm64"
-    #else
-    static let architecture = "x86_64"
-    #endif
-
-    private struct Release: Decodable {
-        struct Asset: Decodable { var name: String; var browserDownloadUrl: URL }
-        var tagName: String
-        var assets: [Asset]
-    }
 
     static func run() throws -> Int32 {
+        #if !arch(arm64)
+        throw UsageError("Lock In runs on Apple silicon Macs only.")
+        #endif
         let latest = try release()
-        guard let version = ReleaseVersion.version(fromTag: latest.tagName) else {
-            throw UsageError("GitHub returned an invalid release version (\(latest.tagName)).")
-        }
+        let version = latest.version
         if let installed = bundleVersion(of: installedApp) {
             switch ReleaseVersion.compare(installed, version) {
             case .orderedSame: print("Lock In \(installed) is the latest release."); return 0
@@ -32,27 +22,25 @@ enum Upgrade {
             print("Installing Lock In \(version)")
         }
 
-        let assetName = "LockIn-\(latest.tagName)-macos-\(architecture).zip"
-        guard let asset = latest.assets.first(where: { $0.name == assetName }) else {
-            throw UsageError("\(latest.tagName) has no \(assetName) download.")
-        }
+        let assetName = ReleaseVersion.assetName(tag: latest.tag)
+        guard let asset = latest.appAsset else { throw UsageError("\(latest.tag) has no \(assetName) download.") }
         let work = FileManager.default.temporaryDirectory.appendingPathComponent("lockin-upgrade-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: work) }
         let zip = work.appendingPathComponent(assetName)
-        try download(asset.browserDownloadUrl, to: zip)
+        try download(asset.url, to: zip)
         try tool("/usr/bin/ditto", "-x", "-k", zip.path, work.path)
 
         let app = work.appendingPathComponent("Lock In.app")
-        guard bundleVersion(of: app) == version else { throw UsageError("The \(latest.tagName) download doesn't contain Lock In \(version).") }
+        guard bundleVersion(of: app) == version else { throw UsageError("The \(latest.tag) download doesn't contain Lock In \(version).") }
         // Only a Developer ID signed, notarized build is installed, as Gatekeeper would require of a download.
         do {
             try tool("/usr/bin/codesign", "--verify", "--deep", "--strict", app.path)
             try tool("/usr/sbin/spctl", "--assess", "--type", "execute", app.path)
-        } catch { throw UsageError("The \(latest.tagName) download failed signature checks, so it wasn't installed.") }
+        } catch { throw UsageError("The \(latest.tag) download failed signature checks, so it wasn't installed.") }
         let script = app.appendingPathComponent("Contents/Resources/install.sh")
         guard FileManager.default.fileExists(atPath: script.path) else {
-            throw UsageError("\(latest.tagName) predates lockin upgrade. Download it from https://github.com/\(ReleaseVersion.repository)/releases.")
+            throw UsageError("\(latest.tag) predates lockin upgrade. Download it from https://github.com/\(ReleaseVersion.repository)/releases.")
         }
 
         let install = Process()
@@ -68,24 +56,18 @@ enum Upgrade {
         return (NSDictionary(contentsOf: plist)?["CFBundleShortVersionString"]) as? String
     }
 
-    private static func release() throws -> Release {
-        var request = URLRequest(url: ReleaseVersion.latestReleaseURL)
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        request.setValue("lockin-cli", forHTTPHeaderField: "User-Agent")
-        let data = try fetch(request)
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        do { return try decoder.decode(Release.self, from: data) }
-        catch { throw UsageError("Couldn't read the latest release from GitHub.") }
+    private static func release() throws -> ReleaseVersion.Release {
+        let (data, status) = try fetch(ReleaseVersion.latestReleaseRequest())
+        do { return try ReleaseVersion.latestRelease(from: data, statusCode: status) }
+        catch { throw UsageError(error.localizedDescription) }
     }
 
-    private static func fetch(_ request: URLRequest) throws -> Data {
-        let result = Box<Result<Data, Error>?>(nil)
+    private static func fetch(_ request: URLRequest) throws -> (Data, Int) {
+        let result = Box<Result<(Data, Int), Error>?>(nil)
         let done = DispatchSemaphore(value: 0)
         URLSession.shared.dataTask(with: request) { data, response, error in
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            if let data, (200..<300).contains(status) { result.value = .success(data) }
-            else { result.value = .failure(error ?? UsageError("GitHub answered \(status) for \(request.url?.absoluteString ?? "")")) }
+            if let data, let response = response as? HTTPURLResponse { result.value = .success((data, response.statusCode)) }
+            else { result.value = .failure(error ?? UsageError("GitHub didn't answer \(request.url?.absoluteString ?? "")")) }
             done.signal()
         }.resume()
         done.wait()
@@ -94,8 +76,10 @@ enum Upgrade {
 
     private static func download(_ url: URL, to destination: URL) throws {
         var request = URLRequest(url: url)
-        request.setValue("lockin-cli", forHTTPHeaderField: "User-Agent")
-        try fetch(request).write(to: destination)
+        request.setValue("lockin", forHTTPHeaderField: "User-Agent")
+        let (data, status) = try fetch(request)
+        guard (200..<300).contains(status) else { throw UsageError("GitHub answered \(status) for \(url.absoluteString)") }
+        try data.write(to: destination)
     }
 
     private static func tool(_ path: String, _ arguments: String...) throws {

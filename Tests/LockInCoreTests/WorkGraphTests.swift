@@ -1,5 +1,6 @@
 import XCTest
 @testable import LockInCore
+import LockInTestSupport
 
 final class WorkGraphTests: XCTestCase {
     func testSessionNormalizationKeepsRootsInPlanAndActiveSession() {
@@ -51,8 +52,8 @@ final class WorkGraphTests: XCTestCase {
         XCTAssertEqual(graph.sequencing.edges, [edge])
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
-        try WorkGraphStorage.save(graph, in: directory)
-        var restored = try XCTUnwrap(WorkGraphStorage.load(from: directory))
+        try Storage.saveWorkGraph(graph, in: directory)
+        var restored = try XCTUnwrap(Storage.loadWorkGraph(from: directory))
         XCTAssertEqual(restored, graph)
         XCTAssertEqual(restored.sequencing.edges, [edge])
         restored.merge(result(imported.nodes, []))
@@ -66,7 +67,7 @@ final class WorkGraphTests: XCTestCase {
             WorkEdge(from: "merged", to: "pr", kind: .depends, source: .stack),
             WorkEdge(from: "closed", to: "pr", kind: .depends, source: .branch)
         ]))
-        XCTAssertEqual(graph.blockers(of: "pr").map(\.id), ["closed"])
+        XCTAssertEqual(graph.blocking(graph.sequencing.edges).filter { $0.to == "pr" }.map(\.from), ["closed"])
     }
     func testFocusedGraphIncludesPrerequisitesAndTheirIssuesButNotUnrelatedWork() {
         var graph = WorkGraph()
@@ -77,7 +78,7 @@ final class WorkGraphTests: XCTestCase {
         ]))
         let focused = graph.focused(on: ["b"])
         XCTAssertEqual(Set(focused.nodes.map(\.id)), ["issue", "other", "a", "b"])
-        XCTAssertEqual(focused.blockers(of: "b").map(\.id), ["a"])
+        XCTAssertEqual(focused.blocking(focused.sequencing.edges).filter { $0.to == "b" }.map(\.from), ["a"])
     }
     func testConflictingEvidenceKeepsStackOverBranch() {
         var graph = WorkGraph()
@@ -93,7 +94,7 @@ final class WorkGraphTests: XCTestCase {
         graph.merge(result([node("a"), node("b")], [
             WorkEdge(from: "a", to: "b", kind: .depends, source: .stack)
         ]))
-        graph.nodes[0].readiness = PullRequestReadiness(checks: "SUCCESS", reviewDecision: "APPROVED", mergeState: "CLEAN", isDraft: false, headOID: "abc")
+        graph.nodes[0].readiness = PullRequestReadiness(checks: .success, reviewDecision: "APPROVED", mergeState: "CLEAN", isDraft: false, headOID: "abc")
         let validator = SchemaValidator()
         XCTAssertEqual(try validator.errors(FileFormat.encoder.encode(graph), against: "work-graph-v1.schema.json"), [])
         XCTAssertEqual(validator.unseen, [])
@@ -102,11 +103,21 @@ final class WorkGraphTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let file = WorkGraphStorage.file(in: directory)
+        let file = Storage.workGraphFile(in: directory)
         for content in [Data("bad json".utf8), Data(#"{"schema_version":999}"#.utf8)] {
             try content.write(to: file)
-            XCTAssertThrowsError(try WorkGraphStorage.load(from: directory))
+            XCTAssertThrowsError(try Storage.loadWorkGraph(from: directory))
             XCTAssertEqual(try Data(contentsOf: file), content)
+        }
+    }
+    func testDuplicateNodesAreReportedByName() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var graph = WorkGraph()
+        graph.nodes = [node("same"), node("same")]
+        try Storage.saveWorkGraph(graph, in: directory)
+        XCTAssertThrowsError(try Storage.loadWorkGraph(from: directory)) {
+            XCTAssertTrue($0.localizedDescription.hasSuffix("It lists “same” more than once."), $0.localizedDescription)
         }
     }
     func testLegacyTaskRolloverKeepsPersistentIdentityAcrossSessions() {

@@ -6,7 +6,8 @@ struct WorkListView: View {
     let completedIDs: Set<String>
     @Binding var selection: String?
     let toggleCollapsed: (String) -> Void
-    let setDone: (String, Bool) -> Void
+    /// Nil outside a session: only a running session's work can be checked off.
+    let setDone: ((String, Bool) -> Void)?
     private var listRows: [WorkListLayout.Row] { presentation.rows }
 
     var body: some View {
@@ -31,16 +32,11 @@ struct WorkListView: View {
         let collapsed = presentation.collapsed.contains(node.id)
         return HStack(spacing: 12) {
             if row.descendantCount > 0 {
-                Button { toggleCollapsed(node.id) } label: {
-                    Image(systemName: collapsed ? "chevron.right" : "chevron.down")
-                        .font(.system(size: 11, weight: .semibold)).frame(width: 18, height: 24)
-                        .contentShape(Rectangle())
-                }.buttonStyle(.pointer(.plain))
-                    .accessibilityLabel("\(collapsed ? "Expand" : "Collapse") \(node.label)")
+                CollapseToggle(collapsed: collapsed, label: node.label) { toggleCollapsed(node.id) }
             } else {
                 Color.clear.frame(width: 18, height: 24).accessibilityHidden(true)
             }
-            if presentation.sessionIDs.contains(node.id) {
+            if let setDone, presentation.sessionIDs.contains(node.id) {
                 let done = completedIDs.contains(node.id)
                 Button { setDone(node.id, !done) } label: {
                     Image(systemName: done ? "checkmark.circle.fill" : "circle")
@@ -77,7 +73,7 @@ struct WorkListView: View {
         }
         .padding(12)
         .background(selection == node.id ? Color.accentColor.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 8))
-        .opacity(context && selection != node.id ? 0.58 : 1)
+        .opacity(context && selection != node.id ? WorkGeometry.contextOpacity : 1)
         .padding(.leading, CGFloat(row.depth) * 24)
     }
 }

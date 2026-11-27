@@ -32,7 +32,7 @@ struct MainView: View {
                                 Text(subtitle).foregroundStyle(.secondary)
                             }
                             Spacer()
-                            Label(statusText, systemImage: store.active ? "circle.fill" : "shield.lefthalf.filled")
+                            Label(WorkPhase.status(store.workLog?.phase), systemImage: store.active ? "circle.fill" : "shield.lefthalf.filled")
                                 .font(.caption).foregroundStyle(accent).padding(10).background(accent.opacity(0.1), in: Capsule())
                         }
                         switch store.page {
@@ -47,11 +47,9 @@ struct MainView: View {
                 }.background(Color(nsColor: .windowBackgroundColor))
             }
         }
-        .sheet(isPresented: $store.showPause) { PauseView().environmentObject(store).buttonStyle(.pointer(.automatic)) }
-        .sheet(isPresented: $store.showEndSession, onDismiss: { if store.journal.pendingReviewID != nil { store.showReview = true } }) {
-            EndSessionView().environmentObject(store).buttonStyle(.pointer(.automatic))
-        }
-        .sheet(isPresented: $store.showReview) { DayReviewView().environmentObject(store).buttonStyle(.pointer(.automatic)) }
+        .sheet(isPresented: $store.showPause) { PauseView().sheetChrome(store) }
+        .sheet(isPresented: $store.showEndSession, onDismiss: { store.presentReview() }) { EndSessionView().sheetChrome(store) }
+        .sheet(isPresented: $store.showReview) { DayReviewView().sheetChrome(store) }
         // Every button shows the pointing-hand cursor; explicit styles below wrap themselves in .pointer too.
         .buttonStyle(.pointer(.automatic))
         .tint(accent)
@@ -59,15 +57,6 @@ struct MainView: View {
         .alert("Lock In", isPresented: Binding(get: { store.message != nil }, set: { if !$0 { store.message = nil } })) {
             Button("OK") { store.message = nil }
         } message: { Text(store.message ?? "") }
-    }
-    private var statusText: String {
-        switch store.workLog?.phase {
-        case .work: return "Focusing"
-        case .overtime: return "In overtime"
-        case .break: return "On a break"
-        case .pause: return "Paused"
-        case nil: return "Your time, protected"
-        }
     }
     private var subtitle: String {
         switch store.page {
@@ -97,7 +86,7 @@ struct FocusView: View {
             Card {
                 let reached = log.targetReached(at: store.now)
                 HStack {
-                    Text(heading(log.phase)).font(.title2).foregroundStyle(log.phase == .overtime ? WorkPhase.overtime.color : .primary)
+                    Text(WorkPhase.heading(log.phase)).font(.title2).foregroundStyle(log.phase == .overtime ? WorkPhase.overtime.color : .primary)
                     Spacer()
                     Text("Work target: \(log.targetSeconds / 3600, specifier: "%.2g") h\(reached ? " · reached" : "")").foregroundStyle(.secondary)
                 }
@@ -110,14 +99,14 @@ struct FocusView: View {
                 }
                 HStack {
                     Label("Break balance: " + WorkStats.clock(log.breakBalance(at: store.now)), systemImage: "cup.and.saucer")
-                    Spacer(); Text("5 min earned per hour worked").font(.caption).foregroundStyle(.secondary)
+                    Spacer(); Text(WorkLog.breakRateText).font(.caption).foregroundStyle(.secondary)
                 }
                 if log.phase == .pause { Text(log.intervals.last?.reason ?? "").foregroundStyle(.secondary) }
                 SessionButtons(showStartNewDay: true)
             }
             Card { SessionWorkSummary() }
         } else if store.journal.pendingReviewID != nil {
-            Card { Text("Session complete").font(.title2); Text("Review your day and choose what comes next."); Button("Review day") { store.showReview = true }.buttonStyle(.pointer(.borderedProminent)) }
+            Card { Text("Session complete").font(.title2); Text("Review your day and choose what comes next."); Button("Review day") { store.presentReview() }.buttonStyle(.pointer(.borderedProminent)) }
         } else {
             PlannerView()
         }
@@ -125,14 +114,6 @@ struct FocusView: View {
     }
 }
 
-private func heading(_ phase: WorkPhase?) -> String {
-    switch phase {
-    case .work, nil: return "Time to work"
-    case .overtime: return "Overtime"
-    case .break: return "Earned break"
-    case .pause: return "Paused"
-    }
-}
 
 struct SessionWorkSummary: View {
     @EnvironmentObject var store: Store
@@ -164,12 +145,12 @@ struct SessionButtons: View {
                 }
                 if log.phase?.isFocused == true {
                     Button("Take earned break") { store.takeBreak() }.disabled(log.breakBalance(at: store.now) < 1)
-                    Button("Pause…") { store.showPause = true; openWindow.main() }
+                    Button("Pause…") { openWindow.main(); store.requestPause() }
                 } else {
                     // Past the target, Finish session is the prominent action.
                     if store.targetReached { Button("Resume overtime") { store.resume() } }
                     else { Button("Resume work") { store.resume() }.buttonStyle(.pointer(.borderedProminent)) }
-                    if log.phase == .break { Button("Pause instead…") { store.showPause = true; openWindow.main() } }
+                    if log.phase == .break { Button("Pause instead…") { openWindow.main(); store.requestPause() } }
                 }
                 if showStartNewDay && !store.targetReached {
                     Spacer()
@@ -180,7 +161,7 @@ struct SessionButtons: View {
             } else {
                 Button(store.journal.pendingReviewID == nil ? "Plan your session" : "Review your day") {
                     store.page = .focus; openWindow.main()
-                    if store.journal.pendingReviewID != nil { store.showReview = true }
+                    store.presentReview()
                 }.buttonStyle(.pointer(.borderedProminent))
             }
         }.controlSize(.large)
@@ -224,7 +205,7 @@ struct DistractionsView: View {
             HStack {
                 TextField("e.g. reddit.com or youtube.com/shorts", text: $website).textFieldStyle(.lockIn(icon: "globe")).onSubmit(add)
                 Button("Add", action: add).disabled(website.trimmingCharacters(in: .whitespaces).isEmpty)
-            }.disabled(!store.canEdit && !(store.active && store.state.session?.profile.blockingMode == .block))
+            }.disabled(!store.canAddWebsite)
             ForEach(store.state.session?.profile.websites ?? store.profile.websites, id: \.self) { rule in
                 HStack {
                     Image(systemName: "globe").foregroundStyle(.secondary)
@@ -260,4 +241,9 @@ struct DistractionsView: View {
         let name = url.deletingPathExtension().lastPathComponent
         store.updateProfile { if !$0.applications.contains(where: { $0.id == id }) { $0.applications.append(BlockedApp(name: name, bundleID: id)) } }
     }
+}
+
+private extension View {
+    /// Sheets don't inherit the window's environment object or button style.
+    func sheetChrome(_ store: Store) -> some View { environmentObject(store).buttonStyle(.pointer(.automatic)) }
 }

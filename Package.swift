@@ -14,9 +14,10 @@ let package = Package(
         .target(name: "LockInCore"),
         .executableTarget(name: "LockIn", dependencies: ["LockInCore"]),
         .executableTarget(name: "LockInCLI", dependencies: ["LockInCore"]),
-        .testTarget(name: "LockInCoreTests", dependencies: ["LockInCore"]),
-        .testTarget(name: "LockInAppTests", dependencies: ["LockIn", "LockInCore"]),
-        .testTarget(name: "LockInCLITests", dependencies: ["LockInCLI", "LockInCore"])
+        .target(name: "LockInTestSupport", dependencies: ["LockInCore"], path: "Tests/LockInTestSupport"),
+        .testTarget(name: "LockInCoreTests", dependencies: ["LockInCore", "LockInTestSupport"]),
+        .testTarget(name: "LockInAppTests", dependencies: ["LockIn", "LockInCore", "LockInTestSupport"]),
+        .testTarget(name: "LockInCLITests", dependencies: ["LockInCLI", "LockInCore", "LockInTestSupport"])
     ],
     swiftLanguageModes: [.v5]
 )

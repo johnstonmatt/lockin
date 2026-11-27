@@ -215,8 +215,8 @@ jobs:
           set -euo pipefail
           # ditto, not `zip`: it preserves the symlinks and extended attributes
           # inside a .app bundle that the signature is computed over.
-          ARCH="$(uname -m)"
-          ASSET="LockIn-$TAG-macos-$ARCH.zip"
+          # Apple silicon only; lockin upgrade looks for this name (ReleaseVersion.assetName).
+          ASSET="LockIn-$TAG-macos-arm64.zip"
           ditto -c -k --keepParent "$APP" "$ASSET"
           echo "ASSET=$ASSET" >> "$GITHUB_ENV"
 

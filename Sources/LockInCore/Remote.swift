@@ -11,7 +11,7 @@ public enum RemoteCommand: Codable, Equatable, Sendable {
     case resume
     case finish
     case end(reason: String)
-    case addTask(title: String, link: String)
+    case addTask(WorkInput)
     /// Nil keeps the task's current value.
     case updateTask(id: UUID, title: String?, link: String?)
     case setTaskCompleted(id: UUID, completed: Bool)
@@ -21,6 +21,12 @@ public enum RemoteCommand: Codable, Equatable, Sendable {
     case undoBackfill
     /// Records a note on the running session.
     case addEvent(text: String)
+
+    /// How long the CLI waits for the app's reply. Adding work can import a Linear or GitHub tree first.
+    public var replyTimeout: TimeInterval {
+        if case .addTask = self { return 300 }
+        return 5
+    }
 }
 
 public struct RemoteReply: Codable, Equatable, Sendable {

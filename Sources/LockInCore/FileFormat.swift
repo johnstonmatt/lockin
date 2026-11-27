@@ -8,6 +8,7 @@ public enum FileFormat {
     /// Files with a newer version than these were written by a newer Lock In: they're read-only to this build.
     public static let sessionVersion = 1
     public static let settingsVersion = 1
+    public static let workGraphVersion = 1
 
     public static let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
@@ -37,9 +38,11 @@ public enum FileFormat {
 
     public enum Problem: LocalizedError, Equatable {
         case newerVersion(Int)
+        case duplicateID(String)
         public var errorDescription: String? {
             switch self {
             case .newerVersion(let version): return "It was written by a newer version of Lock In (schema version \(version))."
+            case .duplicateID(let id): return "It lists “\(id)” more than once."
             }
         }
     }

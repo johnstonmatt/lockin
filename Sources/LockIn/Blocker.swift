@@ -133,6 +133,7 @@ import LockInCore
         currentCheck = check
         let destination = Bundle.main.url(forResource: "blocked", withExtension: "html")?.absoluteString ?? "about:blank"
         let scripts = self.scripts
+        let rules = WebsiteRules(profile.websites, mode: profile.blockingMode)
         queue.async { [weak self] in
             var failures: [String] = []; var blocked = 0
             for id in running {
@@ -144,29 +145,45 @@ import LockInCore
                 guard let script = scripts.scan(id: id, safari: safari, allTabs: allTabs) else { failures.append("\(Self.name(of: id)): could not prepare browser scan"); continue }
                 let result = script.executeAndReturnError(&error)
                 if error != nil { failures.append(Self.failure(id, error: error)); continue }
-                guard result.numberOfItems > 0 else { continue }
-                for index in 1...result.numberOfItems {
+                let rows = (0..<result.numberOfItems).map { index in
+                    (1...3).map { result.atIndex(index + 1)?.atIndex($0)?.stringValue }
+                }
+                let scanned = Self.tabsToBlock(rows, rules: rules)
+                if scanned.unaddressable > 0 { failures.append("\(Self.name(of: id)): unexpected browser tab identifier") }
+                for found in scanned.tabs {
                     guard !check.isCancelled else { break }
-                    guard let row = result.atIndex(index),
-                          let windowID = row.atIndex(1)?.stringValue,
-                          let tabID = row.atIndex(2)?.stringValue,
-                          let raw = row.atIndex(3)?.stringValue, let url = URL(string: raw),
-                          WebsiteRule.shouldBlock(url, rules: profile.websites, mode: profile.blockingMode) else { continue }
-                    guard Int(windowID) != nil, Int(tabID) != nil else { failures.append("\(Self.name(of: id)): unexpected browser tab identifier"); continue }
-                    let tab = safari ? "tab \(tabID) of window id \(windowID)" : "tab id \(Self.literal(tabID)) of window id \(Self.literal(windowID))"
+                    let tab = safari ? "tab \(found.tab) of window id \(found.window)" : "tab id \(Self.literal(found.tab)) of window id \(Self.literal(found.window))"
                     error = nil
-                    guard let script = Self.redirect(id: id, tab: tab, from: raw, to: BlockPage.destination(base: destination, original: raw)) else { failures.append("\(Self.name(of: id)): could not prepare redirect"); continue }
+                    guard let script = Self.redirect(id: id, tab: tab, from: found.url, to: BlockPage.destination(base: destination, original: found.url)) else { failures.append("\(Self.name(of: id)): could not prepare redirect"); continue }
                     let redirected = script.executeAndReturnError(&error)
                     if error != nil { failures.append(Self.failure(id, error: error)) }
                     else if redirected.booleanValue { blocked += 1 }
                 }
             }
-            let result = failures.isEmpty ? "Browser protection active · foreground checks every 250 ms; background sweep every 2 seconds" : failures.joined(separator: " · ")
+            let result = failures.isEmpty ? BrowserScanCadence.activeStatus : failures.joined(separator: " · ")
             Task { @MainActor [weak self] in
                 self?.busy = false; self?.blockedCount += blocked
                 if !check.isCancelled { self?.status = result; self?.needsAttention = !failures.isEmpty }
             }
         }
+    }
+}
+
+extension Blocker {
+    struct ScannedTab: Equatable {
+        var window: String, tab: String, url: String
+    }
+    /// From a scan's rows of window ID, tab ID and URL: the tabs `rules` block, and how many of those had IDs that
+    /// can't be safely put into a redirect script.
+    nonisolated static func tabsToBlock(_ rows: [[String?]], rules: WebsiteRules) -> (tabs: [ScannedTab], unaddressable: Int) {
+        var tabs: [ScannedTab] = [], unaddressable = 0
+        for row in rows {
+            guard row.count == 3, let window = row[0], let tab = row[1], let raw = row[2],
+                  let url = URL(string: raw), rules.shouldBlock(url) else { continue }
+            guard Int(window) != nil, Int(tab) != nil else { unaddressable += 1; continue }
+            tabs.append(ScannedTab(window: window, tab: tab, url: raw))
+        }
+        return (tabs, unaddressable)
     }
 }
 
@@ -181,6 +198,7 @@ private final class CancellationFlag: @unchecked Sendable {
 struct BrowserScanCadence {
     static let foregroundInterval = 0.25
     static let backgroundInterval = 2.0
+    static let activeStatus = "Browser protection active · foreground checks every \(Int(foregroundInterval * 1000)) ms; background sweep every \(Int(backgroundInterval)) seconds"
     private var lastForeground = -Double.infinity
     private var lastBackground = -Double.infinity
     mutating func reset() { lastForeground = -.infinity; lastBackground = -.infinity }

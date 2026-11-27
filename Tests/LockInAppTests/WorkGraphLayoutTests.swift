@@ -1,6 +1,7 @@
 import XCTest
 import LockInCore
 @testable import LockIn
+import LockInTestSupport
 
 final class WorkGraphLayoutTests: XCTestCase {
     static func fixture() -> WorkImportResult {
@@ -58,7 +59,7 @@ final class WorkGraphLayoutTests: XCTestCase {
     }
 
     func testNestedBranchesStayContainedOrderedAndDeterministic() {
-        var graph = WorkGraph(); graph.merge(Self.fixture())
+        var graph = WorkGraph(merging: Self.fixture())
         let layout = WorkGraphLayout(graph: graph, filter: .all, collapsed: [])
         for group in layout.groups {
             for id in group.memberIDs {
@@ -102,10 +103,8 @@ final class WorkGraphLayoutTests: XCTestCase {
         if abs(first.points.last!.x - second.points.last!.x) < 64 {
             XCTAssertGreaterThanOrEqual(abs(first.points.last!.y - second.points.last!.y), 14)
         }
-        for (a, b) in zip(first.points, first.points.dropFirst()) {
-            for (c, d) in zip(second.points, second.points.dropFirst()) {
-                XCTAssertFalse(WorkEdgeRoute.sharesLane(a, b, c, d))
-            }
+        for (a, b, c, d) in segmentPairs(first.points, second.points) {
+            XCTAssertFalse(WorkEdgeRoute.sharesLane(a, b, c, d))
         }
     }
 
@@ -130,24 +129,21 @@ final class WorkGraphLayoutTests: XCTestCase {
             let second = WorkEdgeRoute(source: source, target: targets[1], obstacles: [targets[0], blocker], occupied: [first.points])
             XCTAssertLessThanOrEqual(first.points.count, 4)
             XCTAssertLessThanOrEqual(second.points.count, 4)
-            for (a, b) in zip(first.points, first.points.dropFirst()) {
-                for (c, d) in zip(second.points, second.points.dropFirst()) {
-                    XCTAssertFalse(WorkEdgeRoute.crosses(a, b, c, d))
-                    XCTAssertFalse(WorkEdgeRoute.sharesLane(a, b, c, d))
-                }
+            for (a, b, c, d) in segmentPairs(first.points, second.points) {
+                XCTAssertFalse(WorkEdgeRoute.crosses(a, b, c, d))
+                XCTAssertFalse(WorkEdgeRoute.sharesLane(a, b, c, d))
             }
         }
     }
 
     func testBatchRoutingRevisitsSharedSourcePorts() {
-        var layout = WorkGraphLayout(graph: WorkGraph(), filter: .all, collapsed: [])
-        layout.frames = [
+        let frames = [
             "source": CGRect(x: 636, y: 572, width: 270, height: 92),
             "left": CGRect(x: 298, y: 846, width: 270, height: 92),
             "right": CGRect(x: 636, y: 832, width: 500, height: 92),
             "obstacle": CGRect(x: 636, y: 680, width: 270, height: 120)
         ]
-        layout.representatives = Dictionary(uniqueKeysWithValues: layout.frames.keys.map { ($0, $0) })
+        let layout = RoutingSpace(frames: frames, representatives: Dictionary(uniqueKeysWithValues: frames.keys.map { ($0, $0) }))
         let edges = ["left", "right"].map { WorkEdge(from: "source", to: $0, kind: .depends, source: .linear) }
         let result = WorkEdgeRoute.plan(edges: edges, layout: layout)
         let reverse = WorkEdgeRoute.plan(edges: Array(edges.reversed()), layout: layout)
@@ -155,9 +151,7 @@ final class WorkGraphLayoutTests: XCTestCase {
         let first = result[edges[0].id]!.points, second = result[edges[1].id]!.points
         XCTAssertLessThanOrEqual(first.count, 4)
         XCTAssertLessThanOrEqual(second.count, 4)
-        for (a, b) in zip(first, first.dropFirst()) {
-            for (c, d) in zip(second, second.dropFirst()) { XCTAssertFalse(WorkEdgeRoute.crosses(a, b, c, d)) }
-        }
+        for (a, b, c, d) in segmentPairs(first, second) { XCTAssertFalse(WorkEdgeRoute.crosses(a, b, c, d)) }
     }
 
 }
