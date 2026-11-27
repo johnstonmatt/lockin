@@ -132,6 +132,22 @@ final class FileFormatTests: XCTestCase {
         XCTAssertNil(Timestamp.date("2025-11-03 09:00"))
     }
 
+    func testReadingOneSessionFile() throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent("session.json")
+        let log = openSession()
+        try FileFormat.data(SessionFile(log, checkpoint: start)).write(to: url)
+        let read = try Storage.readSession(at: url)
+        XCTAssertEqual(read.log, log)
+        XCTAssertEqual(read.checkpointAt, start)
+        var empty = SessionFile(log, checkpoint: start)
+        empty.intervals = []
+        try FileFormat.data(empty).write(to: url)
+        XCTAssertThrowsError(try Storage.readSession(at: url)) {
+            XCTAssertTrue($0.localizedDescription.contains("at least one interval"), $0.localizedDescription)
+        }
+    }
+
     func testNewerFilesAreRefused() throws {
         let data = Data(#"{"schema_version": 2, "id": "nonsense"}"#.utf8)
         XCTAssertThrowsError(try FileFormat.decode(SessionFile.self, from: data, supported: 1)) { error in

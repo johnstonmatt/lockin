@@ -32,6 +32,9 @@ public enum FileFormat {
         return decoder
     }()
 
+    /// A file's contents: the encoded value and a trailing newline.
+    public static func data<T: Encodable>(_ value: T) throws -> Data { try encoder.encode(value) + Data("\n".utf8) }
+
     public enum Problem: LocalizedError, Equatable {
         case newerVersion(Int)
         public var errorDescription: String? {
@@ -79,7 +82,7 @@ public enum Timestamp {
     }
 }
 
-// MARK: - Session files: ~/.lockin/sessions/<id>.json
+// MARK: - Session files: ~/.lockin/sessions/<local start time>.json
 
 /// One session, as described by `Schemas/session-v1.schema.json`.
 public struct SessionFile: Codable, Equatable {

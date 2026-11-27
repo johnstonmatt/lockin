@@ -70,7 +70,7 @@ final class WorkImportClientTests: XCTestCase {
         let node = WorkNode(id: "github:acme/app#12", kind: .pullRequest, title: "PR",
                             url: "https://github.com/acme/app/pull/12")
         return WorkImportResult(nodes: [node],
-            snapshot: WorkImport(id: "linear:1", url: "https://linear.app/a/issue/ENG-1", nodeIDs: [node.id],
+            snapshot: .fixture(id: "linear:1", url: "https://linear.app/a/issue/ENG-1", nodeIDs: [node.id],
                 edges: [WorkEdge(from: "linear:1", to: node.id, kind: .implements, source: .linear)]))
     }
     func testLinearPaginatesTreeAndKeepsSharedPRAndExternalBlocker() async throws {

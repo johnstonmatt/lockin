@@ -85,7 +85,7 @@ struct PreferencesView: View {
                 }.disabled(cliStatus == .installed || cliStatus == .unavailable || cliStatus == .blocked)
                 Text(cliStatusText).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
             }
-            Text("The command is a link to ~/.local/bin/lockin. Add ~/.local/bin to your PATH if your shell doesn't already include it.")
+            Text("Installing links ~/.local/bin/lockin to this copy of Lock In. Add ~/.local/bin to your PATH if your shell doesn't already include it.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .onAppear { cliStatus = CommandLineTool.status() }
@@ -110,14 +110,19 @@ struct PreferencesView: View {
             Text("If your menu bar is crowded, macOS or a menu-bar manager may hide icons. The compact icon uses less space than the countdown.").font(.caption).foregroundStyle(.secondary)
             Divider()
             Toggle("Launch at login", isOn: $loginEnabled).onChange(of: loginEnabled) { _, enabled in
+                // Also reached when a failure below puts the toggle back to the real setting.
+                guard enabled != (SMAppService.mainApp.status == .enabled) else { return }
                 do { if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() } }
-                catch { store.message = "Login setting failed: \(error.localizedDescription)" }
+                catch {
+                    store.message = "Login setting failed: \(error.localizedDescription)"
+                    loginEnabled = SMAppService.mainApp.status == .enabled
+                }
             }
             Text("Global shortcut: ⌃⌥⌘F · In Lock In: ⇧⌘F\nAutomation URLs: lockin://start · lockin://stop · lockin://break · lockin://resume · lockin://finish")
                 .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
             Divider()
             Text("About this build").font(.headline)
-            Text("Settings and history stay on this Mac. Browser protection requires Automation permission and checks active tabs; it is not a network firewall. Apps are hidden, not terminated. Force-quitting Lock In bypasses protection. System-wide filtering, Firefox support and automatic Do Not Disturb are not included in this build.")
+            Text("Settings and history stay on this Mac. Browser protection requires Automation permission and checks browser tabs; it is not a network firewall. Apps are hidden, not terminated. Force-quitting Lock In bypasses protection. System-wide filtering, Firefox support and automatic Do Not Disturb are not included in this build.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

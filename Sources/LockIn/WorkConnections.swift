@@ -66,23 +66,21 @@ enum WorkConnections {
 
     static var github: GitHubGraphClient {
         GitHubGraphClient(request: { route in
-            try Task.checkCancellation()
-            let data = try await Task.detached(priority: .userInitiated) {
-                try runGitHub(["--method", "GET", route])
-            }.value
-            try Task.checkCancellation()
-            return data
+            try await gitHub(["--method", "GET", route])
         }, readinessRequest: { reference in
-            try Task.checkCancellation()
             let parts = reference.repository.split(separator: "/").map(String.init)
-            let data = try await Task.detached(priority: .userInitiated) {
-                try runGitHub(["graphql", "--paginate", "--slurp", "-f", "query=" + GitHubReadinessResponse.query,
-                               "-f", "owner=" + parts[0], "-f", "name=" + parts[1],
-                               "-F", "number=\(reference.number)"])
-            }.value
-            try Task.checkCancellation()
-            return data
+            return try await gitHub(["graphql", "--paginate", "--slurp", "-f", "query=" + GitHubReadinessResponse.query,
+                                     "-f", "owner=" + parts[0], "-f", "name=" + parts[1],
+                                     "-F", "number=\(reference.number)"])
         })
+    }
+
+    /// Runs `gh api` off the main actor; gh blocks until it exits, so cancellation is checked on either side.
+    private static func gitHub(_ arguments: [String]) async throws -> Data {
+        try Task.checkCancellation()
+        let data = try await Task.detached(priority: .userInitiated) { try runGitHub(arguments) }.value
+        try Task.checkCancellation()
+        return data
     }
 
     /// gh owns its credentials; only JSON from read-only endpoints crosses into the app.

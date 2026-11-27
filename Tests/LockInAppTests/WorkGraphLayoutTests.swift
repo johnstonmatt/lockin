@@ -23,13 +23,13 @@ final class WorkGraphLayoutTests: XCTestCase {
           + [("a", "b"), ("a", "c"), ("b", "d"), ("c", "e"), ("d", "f"), ("e", "f")].map {
               WorkEdge(from: $0.0, to: $0.1, kind: .depends, source: .stack)
           }
-        return WorkImportResult(nodes: nodes, snapshot: WorkImport(id: "root", url: "", nodeIDs: nodes.map(\.id), edges: edges))
+        return WorkImportResult(nodes: nodes, snapshot: .fixture(id: "root", nodeIDs: nodes.map(\.id), edges: edges))
     }
 
     private func graph(_ ids: [String], edges: [(String, String)]) -> WorkGraph {
         var graph = WorkGraph()
         let nodes = ids.map { WorkNode(id: $0, kind: .pullRequest, title: $0) }
-        graph.merge(WorkImportResult(nodes: nodes, snapshot: WorkImport(id: "test", url: "", nodeIDs: ids,
+        graph.merge(WorkImportResult(nodes: nodes, snapshot: .fixture(id: "test", nodeIDs: ids,
             edges: edges.map { WorkEdge(from: $0.0, to: $0.1, kind: .depends, source: .stack) })))
         return graph
     }

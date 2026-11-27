@@ -3,7 +3,7 @@ import LockInCore
 @testable import LockIn
 
 final class WorkRoutingRegressionTests: XCTestCase {
-    func testSiblingRegionsDoNotRouteAcrossEachOthersHeaders() {
+    static func fixture() -> WorkImportResult {
         let nodes: [WorkNode] = [
             WorkNode(id: "n00", kind: .pullRequest, title: "n00"),
             WorkNode(id: "n01", kind: .pullRequest, title: "n01"),
@@ -74,12 +74,14 @@ final class WorkRoutingRegressionTests: XCTestCase {
             WorkEdge(from: "n26", to: "n10", kind: .implements, source: .linear),
             WorkEdge(from: "n26", to: "n22", kind: .depends, source: .linear),
         ]
-        var graph = WorkGraph()
-        graph.merge(WorkImportResult(nodes: nodes, snapshot: WorkImport(id: "fixture", url: "", nodeIDs: nodes.map(\.id), edges: edges)))
-        let layout = WorkGraphLayout(graph: graph, filter: .all, collapsed: [])
-        let routes = WorkEdgeRoute.plan(edges: graph.sequencing.edges, layout: layout)
-        XCTAssertEqual(routes.count, graph.sequencing.edges.count)
-        XCTAssertEqual(WorkEdgeRoute.obstructionCost(routes: routes, edges: graph.sequencing.edges, layout: layout), 0)
-        XCTAssertTrue(routes.values.allSatisfy { $0.points.count <= 4 })
+        return WorkImportResult(nodes: nodes, snapshot: .fixture(id: "fixture", nodeIDs: nodes.map(\.id), edges: edges))
+    }
+
+    func testSiblingRegionsDoNotRouteAcrossEachOthersHeaders() {
+        var graph = WorkGraph(); graph.merge(Self.fixture())
+        let presentation = WorkPresentation(graph: graph, filter: .all, collapsed: [])
+        XCTAssertEqual(presentation.routes.count, graph.sequencing.edges.count)
+        XCTAssertTrue(presentation.routes.values.allSatisfy { $0.points.count <= 4 })
+        assertLayoutInvariants(presentation, "sibling regions")
     }
 }

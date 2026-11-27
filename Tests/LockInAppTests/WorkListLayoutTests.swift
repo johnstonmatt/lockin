@@ -11,7 +11,7 @@ final class WorkListLayoutTests: XCTestCase {
             WorkNode(id: "pr", kind: .pullRequest, title: "Implementation", label: "app#1"),
             WorkNode(id: "base", kind: .pullRequest, title: "Prerequisite", label: "app#2", context: true)
         ]
-        graph.merge(WorkImportResult(nodes: nodes, snapshot: WorkImport(id: "root", url: "", nodeIDs: nodes.map(\.id), edges: [
+        graph.merge(WorkImportResult(nodes: nodes, snapshot: .fixture(id: "root", nodeIDs: nodes.map(\.id), edges: [
             WorkEdge(from: "root", to: "child", kind: .contains, source: .linear),
             WorkEdge(from: "child", to: "pr", kind: .implements, source: .linear),
             WorkEdge(from: "base", to: "pr", kind: .depends, source: .stack)

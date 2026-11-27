@@ -117,4 +117,59 @@ final class BackfillTests: XCTestCase {
         XCTAssertTrue(created.undoBackfill(now: at(130)))
         XCTAssertEqual(created.sessions.count, 1)
     }
+
+    func testEndsUpToFiveSecondsAheadAreClampedToNow() throws {
+        var journal = pausedSession(worked: 60)
+        let result = try journal.backfill(from: at(120), to: at(130).addingTimeInterval(5), now: at(130))
+        XCTAssertEqual(result.addedSeconds, 600, "the CLI's clock may run slightly ahead; only time up to now is added")
+        var late = pausedSession(worked: 60)
+        XCTAssertThrowsError(try late.backfill(from: at(120), to: at(130).addingTimeInterval(6), now: at(130))) {
+            XCTAssertEqual($0 as? BackfillError, .inFuture)
+        }
+    }
+
+    func testRangesEndingWithinAMinuteOfTheStartRunIntoIt() throws {
+        var inside = pausedSession(worked: 60)
+        let moved = try inside.backfill(from: at(-30), to: at(0).addingTimeInterval(-59), now: at(130))
+        XCTAssertTrue(moved.movedStart)
+        XCTAssertEqual(inside.sessions.count, 1)
+        var outside = pausedSession(worked: 60)
+        let separate = try outside.backfill(from: at(-30), to: at(-1), now: at(130))
+        XCTAssertTrue(separate.createdSession, "a full minute short of the start is separate work")
+        XCTAssertEqual(outside.sessions.count, 2)
+    }
+
+    func testBreaksCountAsAlreadyRecorded() throws {
+        var log = WorkLog(todos: [], targetSeconds: 480 * 60, now: at(0))
+        log.transition(to: .break, at: at(60))
+        _ = log.pause(reason: "Forgot", at: at(65))
+        var journal = JournalState(); journal.sessions = [log]
+        let result = try journal.backfill(from: at(55), to: at(100), now: at(130))
+        XCTAssertEqual(result.alreadyRecordedSeconds, 10 * 60, "five minutes of work and five of break")
+        XCTAssertEqual(result.addedSeconds, 35 * 60)
+        XCTAssertEqual(journal.sessions[0].seconds(.break, at: at(130)), 5 * 60, "the break stays a break")
+    }
+
+    func testPausesInAFinishedSessionCanBeFilled() throws {
+        var log = WorkLog(todos: [], targetSeconds: 480 * 60, now: at(0))
+        log.transition(to: .pause, at: at(60), reason: "Forgot")
+        log.transition(to: .work, at: at(90))
+        log.finish(at: at(120), natural: false)
+        var journal = JournalState(); journal.sessions = [log]
+        let result = try journal.backfill(from: at(60), to: at(90), now: at(200))
+        XCTAssertEqual(result.addedSeconds, 30 * 60)
+        XCTAssertFalse(result.createdSession)
+        XCTAssertEqual(journal.sessions[0].endedAt, at(120), "the session still ends where it did")
+        XCTAssertEqual(journal.sessions[0].intervals.map(\.kind), [.work, .work, .work])
+        XCTAssertEqual(journal.sessions[0].worked(at: at(200)), 120 * 60)
+    }
+
+    func testUndoAfterTheSessionWasRemovedDoesNothing() throws {
+        var journal = pausedSession(worked: 60)
+        _ = try journal.backfill(from: at(-30), to: at(30), now: at(130))
+        journal.sessions.removeAll()
+        XCTAssertFalse(journal.undoBackfill(now: at(130)))
+        XCTAssertNil(journal.lastBackfill)
+        XCTAssertTrue(journal.sessions.isEmpty)
+    }
 }

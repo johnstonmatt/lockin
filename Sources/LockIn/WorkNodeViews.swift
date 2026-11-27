@@ -129,12 +129,36 @@ struct WorkSourceBadge: View {
                 Image(systemName: kind == .linear ? "diamond.fill" : "checklist")
                     .font(.system(size: 9)).accessibilityHidden(true)
             }
-            Text(kind == .pullRequest ? "PR" : kind == .linear ? "Linear" : "Task")
-                .font(.system(size: 9, weight: .semibold))
+            Text(kind.badge).font(.system(size: 9, weight: .semibold))
         }
         .foregroundStyle(.secondary)
         .fixedSize()
-        .accessibilityLabel(kind == .pullRequest ? "GitHub pull request" : kind == .linear ? "Linear issue" : "Local task")
+        .accessibilityLabel(kind.accessibilityName)
+    }
+}
+
+extension WorkNode.Kind {
+    var badge: String {
+        switch self {
+        case .pullRequest: return "PR"
+        case .linear: return "Linear"
+        case .local: return "Task"
+        }
+    }
+    var accessibilityName: String {
+        switch self {
+        case .pullRequest: return "GitHub pull request"
+        case .linear: return "Linear issue"
+        case .local: return "Local task"
+        }
+    }
+    /// Where the node's link opens.
+    var destination: String {
+        switch self {
+        case .pullRequest: return "GitHub"
+        case .linear: return "Linear"
+        case .local: return "browser"
+        }
     }
 }
 

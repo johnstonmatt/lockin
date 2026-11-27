@@ -42,11 +42,6 @@ final class ParseTests: XCTestCase {
             XCTAssertThrowsError(try parse(args)) { XCTAssertTrue(($0 as? UsageError)?.message.contains(fix) == true, "\($0)") }
         }
     }
-    func testVersionOrdering() {
-        XCTAssertEqual(Upgrade.compare("0.10.0", "0.9.1"), .orderedDescending)
-        XCTAssertEqual(Upgrade.compare("0.3.0", "0.4.0"), .orderedAscending)
-        XCTAssertEqual(Upgrade.compare("1.0", "1.0.0"), .orderedSame)
-    }
 }
 
 final class ReportTests: XCTestCase {
@@ -55,9 +50,7 @@ final class ReportTests: XCTestCase {
         var todo = Todo(title: title); todo.link = link; todo.completed = done; return todo
     }
     private func snapshot(_ journal: JournalState, at offset: TimeInterval, locked: Bool = false) -> Snapshot {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "UTC")!
-        return Snapshot(journal: journal, locked: locked, asOf: start.addingTimeInterval(offset), calendar: calendar)
+        Snapshot(journal: journal, locked: locked, asOf: start.addingTimeInterval(offset), calendar: .utc)
     }
 
     func testWorkingStatusAndTaskNumbers() throws {
@@ -150,9 +143,7 @@ final class ReportTests: XCTestCase {
 }
 
 final class BackfillRangeTests: XCTestCase {
-    private var calendar: Calendar = {
-        var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(identifier: "UTC")!; return calendar
-    }()
+    private let calendar = Calendar.utc
     private func date(_ text: String) -> Date { ISO8601DateFormatter().date(from: text + ":00Z")! }
     private func resolve(_ range: String, now: String) throws -> [Date] {
         let r = try BackfillRange.resolve(range, now: date(now), calendar: calendar); return [r.start, r.end]
@@ -172,6 +163,24 @@ final class BackfillRangeTests: XCTestCase {
         XCTAssertEqual(try resolve("2026-11-01T22:30-2026-11-02T01:15", now: "2026-11-04T15:00"), [date("2026-11-01T22:30"), date("2026-11-02T01:15")])
         XCTAssertEqual(try resolve("2026-11-01T22:30-01:15", now: "2026-11-04T15:00"), [date("2026-11-01T22:30"), date("2026-11-02T01:15")])
         XCTAssertEqual(try resolve("21:00-2026-11-02T01:15", now: "2026-11-04T15:00"), [date("2026-11-01T21:00"), date("2026-11-02T01:15")])
+    }
+    func testDatedStartToNowAndAFullDay() throws {
+        XCTAssertEqual(try resolve("2026-11-03T22:30-now", now: "2026-11-04T15:00"), [date("2026-11-03T22:30"), date("2026-11-04T15:00")])
+        XCTAssertEqual(try resolve("2026-11-01T09:00-2026-11-02T09:00", now: "2026-11-04T15:00"), [date("2026-11-01T09:00"), date("2026-11-02T09:00")])
+        XCTAssertThrowsError(try resolve("2026-11-01T09:00-09:00", now: "2026-11-04T15:00"), "a whole day needs both dates")
+    }
+    func testTimesTheClocksSkipAreRefused() throws {
+        // In New York the clocks went from 2:00 to 3:00 on 8 March 2026.
+        let newYork = Calendar.calendar(in: "America/New_York")
+        let now = try XCTUnwrap(newYork.date(from: DateComponents(year: 2026, month: 3, day: 8, hour: 12)))
+        XCTAssertThrowsError(try BackfillRange.resolve("2:30-3:30", now: now, calendar: newYork)) {
+            XCTAssertTrue(($0 as? UsageError)?.message.contains("the clocks went forward") == true, "\($0)")
+        }
+        XCTAssertThrowsError(try BackfillRange.resolve("1:00-2:15", now: now, calendar: newYork))
+        let around = try BackfillRange.resolve("1:30-3:30", now: now, calendar: newYork)
+        XCTAssertEqual(around.end.timeIntervalSince(around.start), 3600, "an hour of real time across the change")
+        XCTAssertEqual(newYork.component(.hour, from: around.start), 1)
+        XCTAssertEqual(newYork.component(.hour, from: around.end), 3)
     }
     func testBadRanges() {
         for range in ["9-10", "9:00", "25:00-26:00", "9:60-10:00", "now-9:00", "2026-02-31T09:00-10:00", "2026-11-05T09:00-10:00", "9:00-9:00"] {

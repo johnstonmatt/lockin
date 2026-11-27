@@ -5,7 +5,8 @@ import LockInCore
 /// Ctrl-C ends the break early and keeps the unused time, like getting back to work early in the app.
 enum BreakCountdown {
     static func run() throws -> Int32 {
-        if try AppClient.snapshot().session?.phase != .break {
+        var snapshot = try AppClient.snapshot()
+        if snapshot.session?.phase != .break {
             let reply = try AppClient.send(.takeBreak)
             guard reply.ok else { return report(reply) }
         }
@@ -16,7 +17,7 @@ enum BreakCountdown {
         interrupt.resume()
         let line = StatusLine()
         while true {
-            let snapshot = try AppClient.snapshot()
+            snapshot = try AppClient.refresh(snapshot)
             guard let log = snapshot.session, log.phase == .break else {
                 // The app ended the break: it ran out, or work resumed, paused or ended some other way.
                 line.finish(ending(snapshot)); return 0

@@ -3,17 +3,15 @@ import LockInCore
 
 extension Store {
     @discardableResult
-    func addWork(_ text: String, using importer: WorkImporter = WorkConnections.importer) throws -> WorkOperation {
+    func addWork(_ text: String, using importer: WorkImporter? = nil) throws -> WorkOperation {
         try addWork(WorkInput(text), using: importer)
     }
 
     @discardableResult
-    func addWork(_ input: WorkInput, using importer: WorkImporter = WorkConnections.importer) throws -> WorkOperation {
+    func addWork(_ input: WorkInput, using importer: WorkImporter? = nil) throws -> WorkOperation {
         try input.validate()
         guard workGraphWritable, !workImporting else { throw WorkImportError("Work can't be added right now. Try again shortly.") }
-        guard workLog != nil || journal.pendingReviewID == nil else {
-            throw WorkImportError("Review your last session in Lock In before planning the next one.")
-        }
+        guard canPlanWork else { throw WorkImportError(Self.reviewFirstMessage) }
         let identity = input.identity
         let saved = WorkOperation.saved("Added “\(input.newTitle)” to \(workLog == nil ? "the next session's plan" : "this session").")
         // Links match by identity; plain task names match case-insensitively.
@@ -22,20 +20,15 @@ extension Store {
             return title.trimmed.caseInsensitiveCompare(input.newTitle) == .orderedSame
         }
         let covered = workGraph.descendants(of: sessionWorkIDs)
-        let selected = sessionGraph.nodes.filter { covered.contains($0.id) }
-        if let existing = selected.first(where: { matches(title: $0.title, link: $0.url) }),
-           let ancestor = workGraph.selectedAncestor(of: existing.id, among: sessionWorkIDs) {
-            throw WorkImportError(parentEntryMessage(ancestor))
+        if let existing = sessionGraph.nodes.first(where: { covered.contains($0.id) && matches(title: $0.title, link: $0.url) }) {
+            try checkNotIncluded(existing.id)
+            throw WorkImportError(identity == nil ? "This task is already in the session." : "This link is already in the session.")
         }
-        if selected.contains(where: { matches(title: $0.title, link: $0.url) })
-            || graphSessionTasks.contains(where: { matches(title: $0.title, link: $0.link) }) {
+        if graphSessionTasks.contains(where: { matches(title: $0.title, link: $0.link) }) {
             throw WorkImportError(identity == nil ? "This task is already in the session." : "This link is already in the session.")
         }
         if let identity {
-            if let existing = workGraph.visibleNodes.first(where: { WorkInput.linkIdentity($0.url) == identity }) {
-                if let ancestor = workGraph.selectedAncestor(of: existing.id, among: sessionWorkIDs) {
-                    throw WorkImportError(parentEntryMessage(ancestor))
-                }
+            if let existing = workGraph.nodes.first(where: { WorkInput.linkIdentity($0.url) == identity }) {
                 try saveWorkSelection([existing])
                 if let url = input.importURL {
                     return try importWork(url, addToSession: false, using: importer)
@@ -44,7 +37,7 @@ extension Store {
             }
             if let url = input.importURL { return try importWork(url, using: importer) }
         }
-        let node = WorkNode(id: "local:\(UUID().uuidString)", kind: .local, title: input.newTitle, url: identity == nil ? "" : input.source)
+        let node = WorkNode(id: WorkNode.localID(), kind: .local, title: input.newTitle, url: identity == nil ? "" : input.source)
         var graph = workGraph
         graph.nodes.append(node)
         try saveWorkGraph(graph)
@@ -54,7 +47,7 @@ extension Store {
 
     func saveWorkGraph(_ graph: WorkGraph) throws {
         guard workGraphWritable else { throw WorkImportError("Work can't be saved right now.") }
-        do { try WorkGraphStorage.save(graph, in: workDirectory) }
+        do { try WorkGraphStorage.save(graph, in: directory) }
         catch { throw WorkImportError("Couldn't save work: \(error.localizedDescription)") }
         workGraph = graph
     }
@@ -70,20 +63,12 @@ extension Store {
     func renameSessionWork(_ id: String, title: String, link: String) {
         guard sessionWorkIDs.contains(id), sessionGraph.nodes.first(where: { $0.id == id })?.kind == .local,
               Todo().with(title: title, link: link).isValid else { return }
-        commitJournal { journal in
-            journal.editCurrentWork { tasks in
-                for index in tasks.indices where tasks[index].workIdentity == id {
-                    tasks[index] = tasks[index].with(title: title, link: link)
-                }
-            }
-        }
+        commitJournal { $0.editCurrentWork(id) { $0 = $0.with(title: title, link: link) } }
     }
 
-    var sessionWorkIDs: Set<String> {
-        Set((workLog?.todos ?? journal.draft).map(\.workIdentity))
-    }
+    var sessionWorkIDs: Set<String> { Set(graphSessionTasks.map(\.workIdentity)) }
 
-    var graphSessionTasks: [Todo] { workLog?.todos ?? journal.plannedTasks }
+    var graphSessionTasks: [Todo] { journal.currentWork }
 
     var sessionGraph: WorkGraph {
         workGraph.updatingLocalWork(from: graphSessionTasks).focused(on: sessionWorkIDs)
@@ -93,9 +78,12 @@ extension Store {
         graphSessionTasks.first { $0.workIdentity == id }?.completed ?? false
     }
 
-    func parentEntryMessage(_ id: String) -> String {
-        let parent = workGraph.nodes.first { $0.id == id }
-        return "Already included through \(parent?.label == "Task" ? parent?.title ?? id : parent?.label ?? id)."
+    /// Throws if a selected entry already contains `id` in `graph`.
+    func checkNotIncluded(_ id: String, in graph: WorkGraph? = nil) throws {
+        guard let ancestor = (graph ?? workGraph).selectedAncestor(of: id, among: sessionWorkIDs) else { return }
+        let parent = workGraph.nodes.first { $0.id == ancestor }
+        let name = parent.map { $0.label == "Task" ? $0.title : $0.label } ?? ancestor
+        throw WorkImportError("Already included through \(name).")
     }
 
     @discardableResult
@@ -115,39 +103,21 @@ extension Store {
     }
 
     func saveWorkSelection(_ nodes: [WorkNode]) throws {
-        for node in nodes {
-            if let ancestor = workGraph.selectedAncestor(of: node.id, among: sessionWorkIDs) {
-                throw WorkImportError(parentEntryMessage(ancestor))
-            }
+        for node in nodes { try checkNotIncluded(node.id) }
+        let selected = sessionWorkIDs
+        let additions = nodes.filter { !selected.contains($0.id) }.uniqued(by: \.id).map(Todo.init(work:))
+        guard commitJournal({ $0.addCurrentWork(additions) }) else {
+            throw WorkImportError(message ?? "Couldn't save this work to the session.")
         }
-        var selected = sessionWorkIDs
-        let additions = nodes.compactMap { node -> Todo? in
-            guard selected.insert(node.id).inserted else { return nil }
-            var todo = Todo(title: node.title)
-            todo.link = node.url; todo.workNodeID = node.id
-            return todo
-        }
-        guard commitJournal({ journal in
-            if let index = journal.openSessionIndex { journal.sessions[index].todos += additions }
-            else { journal.setPlan(journal.plannedTasks + additions) }
-        }) else { throw WorkImportError(message ?? "Couldn't save this work to the session.") }
     }
 
     func removeWorkFromSession(_ id: String) {
-        commitJournal { journal in
-            if let index = journal.openSessionIndex {
-                journal.sessions[index].todos.removeAll { $0.workIdentity == id }
-            } else { journal.setPlan(journal.plannedTasks.filter { $0.workIdentity != id }) }
-        }
+        commitJournal { $0.removeCurrentWork { $0.workIdentity == id } }
     }
 
     func setSessionWorkDone(_ id: String, done: Bool) {
         guard sessionWorkIDs.contains(id) else { return }
-        commitJournal { journal in
-            journal.editCurrentWork { tasks in
-                for index in tasks.indices where tasks[index].workIdentity == id { tasks[index].completed = done }
-            }
-        }
+        commitJournal { $0.editCurrentWork(id) { $0.completed = done } }
     }
 
     func syncLocalWork() {

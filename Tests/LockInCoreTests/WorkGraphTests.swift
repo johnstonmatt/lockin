@@ -38,8 +38,8 @@ final class WorkGraphTests: XCTestCase {
         WorkNode(id: id, kind: kind, title: id, resolved: resolved)
     }
     private func result(_ nodes: [WorkNode], _ edges: [WorkEdge]) -> WorkImportResult {
-        WorkImportResult(nodes: nodes, snapshot: WorkImport(id: "root", url: "https://linear.app/a/issue/A-1",
-            nodeIDs: nodes.map(\.id), edges: edges, refreshedAt: Date(timeIntervalSince1970: 1700000000)))
+        WorkImportResult(nodes: nodes, snapshot: .fixture(id: "root", url: "https://linear.app/a/issue/A-1",
+            nodeIDs: nodes.map(\.id), edges: edges))
     }
     func testImportRefreshSurvivesDiskRoundTrip() throws {
         let edge = WorkEdge(from: "a", to: "b", kind: .depends, source: .stack)
@@ -93,7 +93,6 @@ final class WorkGraphTests: XCTestCase {
         graph.merge(result([node("a"), node("b")], [
             WorkEdge(from: "a", to: "b", kind: .depends, source: .stack)
         ]))
-        graph.hiddenNodeIDs = ["hidden"]
         graph.nodes[0].readiness = PullRequestReadiness(checks: "SUCCESS", reviewDecision: "APPROVED", mergeState: "CLEAN", isDraft: false, headOID: "abc")
         let validator = SchemaValidator()
         XCTAssertEqual(try validator.errors(FileFormat.encoder.encode(graph), against: "work-graph-v1.schema.json"), [])

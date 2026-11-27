@@ -30,7 +30,7 @@ struct WorkDetailsView: View {
                         .foregroundStyle(node.graphStatusColor)
                 }
                 if let url = URL(string: node.url), ["https", "http"].contains(url.scheme ?? "") {
-                    Link("Open in \(node.kind == .linear ? "Linear" : node.kind == .pullRequest ? "GitHub" : "browser")", destination: url)
+                    Link("Open in \(node.kind.destination)", destination: url)
                 }
                 if inSession {
                     Toggle("Done for this session", isOn: Binding(get: {

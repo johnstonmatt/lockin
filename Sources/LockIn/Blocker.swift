@@ -3,7 +3,7 @@ import Carbon
 import LockInCore
 
 @MainActor final class Blocker: ObservableObject {
-    @Published var status = "Ready · browser permission requested when a session starts"
+    @Published var status = "Ready · click Enable browser blocking to give Lock In browser access"
     @Published var blockedCount = 0
     @Published var needsAttention = false
     @Published var requestingPermission = false
@@ -15,15 +15,23 @@ import LockInCore
     private let scripts = BrowserScanScripts()
     private var currentCheck: CancellationFlag?
     private let queue = DispatchQueue(label: "app.lockin.browser-control")
-    private static let browsers: [String: Bool] = [
-        "com.apple.Safari": true, "com.google.Chrome": false,
-        "com.brave.Browser": false, "com.microsoft.edgemac": false,
-        "com.vivaldi.Vivaldi": false, "company.thebrowser.Browser": false
+    /// Supported browsers by bundle ID. Safari's AppleScript addresses tabs by index; the Chromium browsers by id.
+    struct Browser: Sendable {
+        let name: String
+        let isSafari: Bool
+    }
+    nonisolated static let browsers: [String: Browser] = [
+        "com.apple.Safari": Browser(name: "Safari", isSafari: true),
+        "com.google.Chrome": Browser(name: "Chrome", isSafari: false),
+        "com.brave.Browser": Browser(name: "Brave", isSafari: false),
+        "com.microsoft.edgemac": Browser(name: "Edge", isSafari: false),
+        "com.vivaldi.Vivaldi": Browser(name: "Vivaldi", isSafari: false),
+        "company.thebrowser.Browser": Browser(name: "Arc", isSafari: false)
     ]
     func requestBrowserAccess() {
         guard !requestingPermission else { return }
         let ids = NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier).filter { Self.browsers[$0] != nil }
-        guard !ids.isEmpty else { status = "Open Chrome or Safari, then enable browser blocking."; needsAttention = true; return }
+        guard !ids.isEmpty else { status = "Open a supported browser, then enable browser blocking."; needsAttention = true; return }
         requestingPermission = true
         queue.async { [weak self] in
             let failures = ids.compactMap { id -> String? in
@@ -47,8 +55,9 @@ import LockInCore
         defer { AEDisposeDesc(&descriptor) }
         return AEDeterminePermissionToAutomateTarget(&descriptor, AEEventClass(typeWildCard), AEEventID(typeWildCard), ask)
     }
-    nonisolated private static func permissionMessage(_ id: String, code: OSStatus) -> String {
-        let name = id == "com.google.Chrome" ? "Chrome" : id == "com.apple.Safari" ? "Safari" : id
+    nonisolated static func name(of id: String) -> String { browsers[id]?.name ?? id }
+    nonisolated static func permissionMessage(_ id: String, code: OSStatus) -> String {
+        let name = name(of: id)
         if code == -1744 { return "\(name): permission not requested. Click Enable browser blocking." }
         if code == -1743 { return "\(name): Automation access denied (-1743). Enable Lock In → \(name) in System Settings → Privacy & Security → Automation." }
         return "\(name): browser access failed (\(code))."
@@ -56,8 +65,8 @@ import LockInCore
     nonisolated private static func literal(_ value: String) -> String {
         "\"" + value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
-    /// Sends one tab to the block page, but only if it still shows `url`: the tab may have moved on since the scan.
-    /// Returns true if it redirected. A tab that has since closed (-1728) isn't an error.
+    /// A script that sends one tab to the block page, but only if it still shows `url`: the tab may have moved on
+    /// since the scan. The script returns true if it redirected; a tab that has since closed (-1728) isn't an error.
     nonisolated private static func redirect(id: String, tab: String, from url: String, to destination: String) -> NSAppleScript? {
         NSAppleScript(source: """
         with timeout of 5 seconds
@@ -79,7 +88,7 @@ import LockInCore
     nonisolated private static func failure(_ id: String, error: NSDictionary?) -> String {
         let code = error?[NSAppleScript.errorNumber] as? Int ?? 0
         let detail = error?[NSAppleScript.errorMessage] as? String ?? "AppleScript could not run"
-        return "\(id): \(detail) (\(code))"
+        return "\(name(of: id)): \(detail) (\(code))"
     }
     func deactivate() {
         currentCheck?.cancel()
@@ -123,7 +132,6 @@ import LockInCore
         let check = CancellationFlag()
         currentCheck = check
         let destination = Bundle.main.url(forResource: "blocked", withExtension: "html")?.absoluteString ?? "about:blank"
-        let browserKinds = Self.browsers
         let scripts = self.scripts
         queue.async { [weak self] in
             var failures: [String] = []; var blocked = 0
@@ -131,9 +139,9 @@ import LockInCore
                 guard !check.isCancelled else { break }
                 let permission = Self.permission(id, ask: false)
                 guard permission == noErr else { failures.append(Self.permissionMessage(id, code: permission)); continue }
-                let safari = browserKinds[id] == true
+                let safari = Self.browsers[id]?.isSafari == true
                 var error: NSDictionary?
-                guard let script = scripts.scan(id: id, safari: safari, allTabs: allTabs) else { failures.append("\(id): could not prepare browser scan"); continue }
+                guard let script = scripts.scan(id: id, safari: safari, allTabs: allTabs) else { failures.append("\(Self.name(of: id)): could not prepare browser scan"); continue }
                 let result = script.executeAndReturnError(&error)
                 if error != nil { failures.append(Self.failure(id, error: error)); continue }
                 guard result.numberOfItems > 0 else { continue }
@@ -144,10 +152,10 @@ import LockInCore
                           let tabID = row.atIndex(2)?.stringValue,
                           let raw = row.atIndex(3)?.stringValue, let url = URL(string: raw),
                           WebsiteRule.shouldBlock(url, rules: profile.websites, mode: profile.blockingMode) else { continue }
-                    guard Int(windowID) != nil, Int(tabID) != nil else { failures.append("\(id): unexpected browser tab identifier"); continue }
+                    guard Int(windowID) != nil, Int(tabID) != nil else { failures.append("\(Self.name(of: id)): unexpected browser tab identifier"); continue }
                     let tab = safari ? "tab \(tabID) of window id \(windowID)" : "tab id \(Self.literal(tabID)) of window id \(Self.literal(windowID))"
                     error = nil
-                    guard let script = Self.redirect(id: id, tab: tab, from: raw, to: BlockPage.destination(base: destination, original: raw)) else { failures.append("\(id): could not prepare redirect"); continue }
+                    guard let script = Self.redirect(id: id, tab: tab, from: raw, to: BlockPage.destination(base: destination, original: raw)) else { failures.append("\(Self.name(of: id)): could not prepare redirect"); continue }
                     let redirected = script.executeAndReturnError(&error)
                     if error != nil { failures.append(Self.failure(id, error: error)) }
                     else if redirected.booleanValue { blocked += 1 }

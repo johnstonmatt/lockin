@@ -14,10 +14,28 @@ enum AppClient {
         catch { throw UsageError(error.localizedDescription) }
         for problem in contents.skipped { printError("skipped sessions/\(problem)") }
         let running = isRunning
-        // Without the app, nothing is counting: on relaunch the gap since the checkpoint becomes a pause.
-        return Snapshot(journal: contents.journal, locked: contents.preferences.session?.locked == true, appRunning: running,
-                        asOf: running ? Date() : contents.checkpoint ?? Date())
+        var snapshot = Snapshot(journal: contents.journal, locked: contents.preferences.session?.locked == true, appRunning: running,
+                                asOf: asOf(running: running, checkpoint: contents.checkpoint))
+        snapshot.sessionFile = contents.journal.openSession.flatMap { contents.sessionFiles[$0.id] }
+        return snapshot
     }
+
+    /// `snapshot` with its open session read again from that session's file alone, for polling.
+    /// Falls back to a full read if the file can't be read.
+    static func refresh(_ snapshot: Snapshot) throws -> Snapshot {
+        guard let file = snapshot.sessionFile, let index = snapshot.journal.openSessionIndex,
+              let session = try? Storage.readSession(at: file), session.id == snapshot.journal.sessions[index].id else {
+            return try self.snapshot()
+        }
+        var refreshed = snapshot
+        refreshed.journal.sessions[index] = session.log
+        refreshed.appRunning = isRunning
+        refreshed.asOf = asOf(running: refreshed.appRunning, checkpoint: session.checkpointAt)
+        return refreshed
+    }
+
+    /// Without the app, nothing is counting: on relaunch the gap since the checkpoint becomes a pause.
+    private static func asOf(running: Bool, checkpoint: Date?) -> Date { running ? Date() : checkpoint ?? Date() }
 
     static func open(background: Bool) throws {
         let process = Process()

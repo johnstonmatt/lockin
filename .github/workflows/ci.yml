@@ -10,13 +10,16 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   check:
     # macOS, not Linux: both targets import AppKit/SwiftUI, and the app tests
     # construct the real Store.
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Package.swift needs Swift 6 tools. Printed so a runner image change that
       # breaks the build is visible at a glance.

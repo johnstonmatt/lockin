@@ -469,7 +469,7 @@ private struct RhythmChart: View {
             let lowest = worked.map(\.hour).min()!, highest = worked.map(\.hour).max()!
             let first = max(0, min(lowest, highest - 7)), last = min(23, max(highest, first + 7))
             let peak = worked.map(\.seconds).max()!
-            let symbols = Calendar.current.shortWeekdaySymbols
+            let symbols = stats.calendar.shortWeekdaySymbols
             let shown = cells.filter { (first...last).contains($0.hour) }
             VStack(alignment: .leading, spacing: 12) {
                 let order = stats.orderedWeekdays
@@ -504,7 +504,7 @@ private struct RhythmChart: View {
                     }) { _ in
                         if let cell = shown.first(where: { $0.id == hovered }) {
                             Tooltip {
-                                Text("\(Calendar.current.weekdaySymbols[cell.weekday - 1]) · \(hourLabel(cell.hour))–\(hourLabel((cell.hour + 1) % 24))").fontWeight(.semibold)
+                                Text("\(stats.calendar.weekdaySymbols[cell.weekday - 1]) · \(hourLabel(cell.hour))–\(hourLabel((cell.hour + 1) % 24))").fontWeight(.semibold)
                                 Text(cell.seconds > 0 ? "\(hours(cell.seconds)) worked" : "No work").foregroundStyle(.secondary)
                             }
                         }
@@ -519,7 +519,7 @@ private struct RhythmChart: View {
                     Text("More")
                     Spacer()
                     if let top = worked.max(by: { $0.seconds < $1.seconds }) {
-                        Text("Peak: \(Calendar.current.weekdaySymbols[top.weekday - 1]) around \(hourLabel(top.hour)) · \(hours(top.seconds))").foregroundStyle(.secondary)
+                        Text("Peak: \(stats.calendar.weekdaySymbols[top.weekday - 1]) around \(hourLabel(top.hour)) · \(hours(top.seconds))").foregroundStyle(.secondary)
                     }
                 }.font(.caption)
             }
@@ -531,7 +531,7 @@ private struct RhythmChart: View {
         return WorkPhase.work.color.opacity(0.2 + 0.8 * min(1, seconds / peak))
     }
     private func hourLabel(_ hour: Int) -> String {
-        Calendar.current.date(bySettingHour: hour, minute: 0, second: 0, of: .now)!.formatted(.dateTime.hour())
+        stats.calendar.date(bySettingHour: hour, minute: 0, second: 0, of: .now)!.formatted(.dateTime.hour())
     }
 }
 
@@ -576,7 +576,7 @@ private struct SessionList: View {
     }
 }
 
-/// Thin segmented bar: one session split into work, break and pause, separated by 2pt surface gaps.
+/// Thin segmented bar: one session split by phase, separated by 2pt surface gaps.
 private struct PhaseBar: View {
     let totals: PhaseTotals
     var body: some View {

@@ -2,27 +2,22 @@ import XCTest
 import LockInCore
 @testable import LockIn
 
-final class WorkGraphIntegrationTests: XCTestCase {
-    private var directory: URL!
-    override func setUp() { directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString) }
-    override func tearDown() { try? FileManager.default.removeItem(at: directory) }
-    @MainActor private func store() -> Store { Store(directory: directory, runTimer: false, enforceBlocking: false, channel: nil) }
-
+final class WorkGraphIntegrationTests: StoreTestCase {
     private func imported() -> WorkImportResult {
         let issue = WorkNode(id: "linear:root", kind: .linear, title: "Build a feature")
         let context = WorkNode(id: "github:app#1", kind: .pullRequest, title: "Prerequisite", context: true)
         let pr = WorkNode(id: "github:app#2", kind: .pullRequest, title: "Feature")
         let merged = WorkNode(id: "github:app#3", kind: .pullRequest, title: "Done", status: "Merged", resolved: true)
         let nodes = [issue, context, pr, merged]
-        return WorkImportResult(nodes: nodes, snapshot: WorkImport(id: issue.id, url: "https://linear.app/a/issue/A-1",
+        return WorkImportResult(nodes: nodes, snapshot: .fixture(id: issue.id, url: "https://linear.app/a/issue/A-1",
             nodeIDs: nodes.map(\.id), edges: [
                 WorkEdge(from: issue.id, to: pr.id, kind: .implements, source: .linear),
                 WorkEdge(from: context.id, to: pr.id, kind: .depends, source: .stack),
                 WorkEdge(from: issue.id, to: merged.id, kind: .implements, source: .linear)
-            ], refreshedAt: Date(timeIntervalSince1970: 1700000000)))
+            ]))
     }
     @MainActor func testAddingSavedWorkRefreshesItsDependencies() async throws {
-        let store = store()
+        let store = makeStore()
         var saved = imported()
         saved.nodes[0].url = saved.snapshot.url
         try store.applyWorkImport(saved, addToSession: false, targetSession: nil)
@@ -41,11 +36,11 @@ final class WorkGraphIntegrationTests: XCTestCase {
         XCTAssertEqual(store.sessionWorkIDs, [saved.snapshot.id])
         XCTAssertEqual(store.sessionGraph.nodes.first { $0.id == "github:app#2" }?.title, "Updated feature")
         XCTAssertTrue(store.sessionGraph.nodes.contains { $0.id == dependency.id })
-        XCTAssertEqual(self.store().workGraph, store.workGraph)
+        XCTAssertEqual(makeStore().workGraph, store.workGraph)
     }
 
     @MainActor func testDescendantsRejectAsDuplicatesAndCannotBeEdited() throws {
-        let store = store()
+        let store = makeStore()
         var result = imported()
         result.nodes[2].url = "https://github.com/acme/app/pull/2"
         try store.applyWorkImport(result, addToSession: true, targetSession: nil)
@@ -65,18 +60,18 @@ final class WorkGraphIntegrationTests: XCTestCase {
     }
 
     @MainActor func testSelectingParentAbsorbsSelectedChildrenAndRestartKeepsOnlyRoot() throws {
-        let store = store()
+        let store = makeStore()
         let result = imported()
         try store.applyWorkImport(result, addToSession: false, targetSession: nil)
         XCTAssertTrue(store.selectWorkForSession(result.nodes[2]))
         XCTAssertTrue(store.selectWorkForSession(result.nodes[0]))
         XCTAssertEqual(store.sessionWorkIDs, [result.snapshot.id])
-        XCTAssertEqual(self.store().sessionWorkIDs, [result.snapshot.id])
+        XCTAssertEqual(makeStore().sessionWorkIDs, [result.snapshot.id])
         XCTAssertEqual(Set(store.sessionGraph.nodes.map(\.id)), Set(result.nodes.map(\.id)))
     }
 
     @MainActor func testUnknownImportedChildIsRejectedWhenMembershipRevealsSelectedParent() throws {
-        let store = store()
+        let store = makeStore()
         let result = imported()
         XCTAssertTrue(store.selectWorkForSession(result.nodes[0]))
         var childImport = result
@@ -87,21 +82,24 @@ final class WorkGraphIntegrationTests: XCTestCase {
         XCTAssertEqual(store.sessionWorkIDs, [result.nodes[0].id])
     }
     @MainActor func testImportSelectsSessionWorkButNotExternalPrerequisitesAndPersists() throws {
-        let store = store()
+        let store = makeStore()
         try store.applyWorkImport(imported(), addToSession: true, targetSession: nil)
         XCTAssertEqual(store.sessionWorkIDs, ["linear:root"])
         XCTAssertTrue(store.sessionGraph.nodes.contains { $0.id == "github:app#1" })
         XCTAssertFalse(store.sessionWorkIDs.contains("github:app#1"))
-        let restored = self.store()
+        let restored = makeStore()
         XCTAssertEqual(restored.workGraph, store.workGraph)
         XCTAssertEqual(restored.sessionWorkIDs, store.sessionWorkIDs)
         try restored.applyWorkImport(imported(), addToSession: true, targetSession: nil)
         XCTAssertEqual(restored.graphSessionTasks.count, 1)
     }
     @MainActor func testRefreshDoesNotReAddRemovedTasksOrChangeLocalCompletion() throws {
-        let store = store()
-        try store.applyWorkImport(imported(), addToSession: true, targetSession: nil)
-        store.removeWorkFromSession("github:app#2")
+        let store = makeStore()
+        let result = imported()
+        try store.applyWorkImport(result, addToSession: true, targetSession: nil)
+        XCTAssertTrue(store.selectWorkForSession(result.nodes[1]))
+        XCTAssertEqual(store.sessionWorkIDs, ["linear:root", "github:app#1"])
+        store.removeWorkFromSession("github:app#1")
         store.setSessionWorkDone("linear:root", done: true)
         try store.applyWorkImport(imported(), addToSession: false, targetSession: nil)
         XCTAssertEqual(store.sessionWorkIDs, ["linear:root"])
@@ -109,7 +107,7 @@ final class WorkGraphIntegrationTests: XCTestCase {
         XCTAssertFalse(store.workGraph.nodes.first { $0.id == "linear:root" }!.resolved)
     }
     @MainActor func testImportFinishingAfterSessionChangedDoesNotSelectWork() throws {
-        let store = store()
+        let store = makeStore()
         XCTAssertThrowsError(try store.applyWorkImport(imported(), addToSession: true, targetSession: UUID())) {
             XCTAssertTrue($0.localizedDescription.contains("session changed"))
         }
@@ -117,12 +115,12 @@ final class WorkGraphIntegrationTests: XCTestCase {
         XCTAssertEqual(store.workGraph.nodes.count, 4)
     }
     @MainActor func testLegacyTasksKeepGraphIdentityAndLocalEdits() throws {
-        let store = store()
+        let store = makeStore()
         let todo = Todo(title: "Old task")
         store.commitJournal { $0.setPlan([todo]) }
         XCTAssertEqual(store.sessionGraph.nodes[0].id, "local:\(todo.id.uuidString)")
         store.renameSessionWork("local:\(todo.id.uuidString)", title: "Renamed", link: "")
-        let restored = self.store()
+        let restored = makeStore()
         XCTAssertEqual(restored.sessionGraph.nodes[0].title, "Renamed")
         XCTAssertEqual(restored.workGraph.nodes[0].title, "Renamed")
     }
@@ -130,7 +128,7 @@ final class WorkGraphIntegrationTests: XCTestCase {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let content = Data("broken".utf8)
         try content.write(to: WorkGraphStorage.file(in: directory))
-        let store = store()
+        let store = makeStore()
         XCTAssertFalse(store.editWorkGraph { $0.nodes.removeAll() })
         store.commitJournal { $0.setPlan([Todo(title: "Session task")]) }
         XCTAssertEqual(store.graphSessionTasks.count, 1)
@@ -141,7 +139,7 @@ final class WorkGraphIntegrationTests: XCTestCase {
         let root = WorkNode(id: "root", kind: .linear, title: "Root")
         let child = WorkNode(id: "child", kind: .linear, title: "Child")
         let pr = WorkNode(id: "pr", kind: .pullRequest, title: "PR")
-        graph.merge(WorkImportResult(nodes: [root, child, pr], snapshot: WorkImport(id: root.id, url: "", nodeIDs: ["root", "child", "pr"], edges: [
+        graph.merge(WorkImportResult(nodes: [root, child, pr], snapshot: .fixture(id: root.id, nodeIDs: ["root", "child", "pr"], edges: [
             WorkEdge(from: "root", to: "child", kind: .contains, source: .linear),
             WorkEdge(from: "child", to: "pr", kind: .implements, source: .linear)
         ])))
@@ -168,7 +166,7 @@ final class WorkGraphIntegrationTests: XCTestCase {
             WorkNode(id: "b", kind: .linear, title: "B"),
             WorkNode(id: "pr", kind: .pullRequest, title: "PR")
         ]
-        graph.merge(WorkImportResult(nodes: nodes, snapshot: WorkImport(id: "a", url: "", nodeIDs: nodes.map(\.id), edges: [
+        graph.merge(WorkImportResult(nodes: nodes, snapshot: .fixture(id: "a", nodeIDs: nodes.map(\.id), edges: [
             WorkEdge(from: "a", to: "b", kind: .contains, source: .linear),
             WorkEdge(from: "b", to: "a", kind: .contains, source: .linear),
             WorkEdge(from: "a", to: "pr", kind: .implements, source: .linear),

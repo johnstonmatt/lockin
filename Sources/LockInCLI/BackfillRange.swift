@@ -4,6 +4,7 @@ import Foundation
 /// - A range whose end is earlier than its start runs past midnight.
 /// - Times without a date mean their most recent occurrence that's entirely in the past.
 /// - A date-less end after a dated start is the first time it comes round after the start, and vice versa.
+/// - A time the clocks skip when they go forward is refused rather than moved.
 enum BackfillRange {
     private struct Point {
         var day: DateComponents?
@@ -54,6 +55,12 @@ enum BackfillRange {
             end = try at(to, on: now); start = try at(from, on: end)
             if start >= end { start = shift(start, days: -1) }
             if end > now { end = shift(end, days: -1); start = shift(start, days: -1) }
+        }
+        for (date, point) in [(start, from), (end, to)] where !point.isNow {
+            // Setting or shifting into a skipped hour moves the time past the change.
+            guard calendar.component(.hour, from: date) == point.hour, calendar.component(.minute, from: date) == point.minute else {
+                throw UsageError("\(point.hour):\(String(format: "%02d", point.minute)) doesn't exist on that day: the clocks went forward. Give a time before or after the change.")
+            }
         }
         guard start < end else { throw UsageError("The range ends before it starts.") }
         guard end <= now else { throw UsageError("That range ends in the future.") }

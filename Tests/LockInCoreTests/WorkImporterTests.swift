@@ -17,7 +17,7 @@ final class WorkImporterTests: XCTestCase {
 
     private func fixture() -> WorkImportResult {
         let node = WorkNode(id: "root", kind: .linear, title: "Feature")
-        return WorkImportResult(nodes: [node], snapshot: WorkImport(id: node.id, url: "", nodeIDs: [node.id], edges: []))
+        return WorkImportResult(nodes: [node], snapshot: .fixture(id: node.id, nodeIDs: [node.id], edges: []))
     }
 
     func testFirstImportRetainsLinearTreeWhenGitHubIsUnavailable() async throws {

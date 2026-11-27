@@ -24,13 +24,11 @@ import LockInCore
 extension Store {
     /// Runs a CLI command through the same methods as the UI, so the same rules apply (Hardcore Mode, pause reasons,
     /// earned breaks). The reply carries the app's own explanation when a command is refused.
-    func perform(_ command: RemoteCommand, using importer: WorkImporter = WorkConnections.importer) async -> RemoteReply {
+    func perform(_ command: RemoteCommand, using importer: WorkImporter? = nil) async -> RemoteReply {
         message = nil
-        now = Date()
+        now = clock()
         func refused(_ fallback: String) -> RemoteReply { .failure(message ?? fallback) }
         let noSession = RemoteReply.failure("No session is running.")
-        // Saving the review replaces the plan, so changing it now would be lost.
-        let reviewFirst = RemoteReply.failure("Review your last session in Lock In before planning the next one.")
         switch command {
         case .ping:
             return .success("Lock In is running.")
@@ -62,7 +60,7 @@ extension Store {
             if log.phase == .pause { return .failure("Resume before taking a break.") }
             takeBreak()
             guard let log = workLog, log.phase == .break else { return refused("Lock In couldn't start a break.") }
-            return .success("On break for \(WorkStats.clock(log.breakBalance(at: Date()))).")
+            return .success("On break for \(WorkStats.clock(log.breakBalance(at: clock()))).")
 
         case .resume:
             guard let log = workLog else { return noSession }
@@ -87,14 +85,13 @@ extension Store {
 
         case .addTask(let title, let link):
             do {
-                let input = WorkInput(title: title.isEmpty ? nil : title, link: link)
-                let operation = try addWork(input, using: importer)
+                let operation = try addWork(WorkInput(title: title, link: link), using: importer)
                 return .success(try await operation.value)
             } catch { return .failure(error.localizedDescription) }
 
         case .updateTask(let id, let title, let link):
             let inSession = workLog != nil
-            if !inSession, journal.pendingReviewID != nil { return reviewFirst }
+            if !canPlanWork { return .failure(Self.reviewFirstMessage) }
             guard let todo = (workLog?.todos ?? journal.draft).first(where: { $0.id == id }) else {
                 return .failure(inSession ? "No such task in this session." : "No such task in the plan.")
             }
@@ -151,8 +148,9 @@ extension Store {
             if workLog != nil {
                 return deleteTask(id: id) ? .success("Removed.") : refused("No such task in this session.")
             }
-            guard journal.draft.contains(where: { $0.id == id }) else { return .failure("No such task in the plan.") }
-            guard commitJournal({ $0.setPlan($0.draft.filter { $0.id != id }) }) else { return refused("Lock In couldn't save the plan.") }
+            if !canPlanWork { return .failure(Self.reviewFirstMessage) }
+            guard journal.plannedTasks.contains(where: { $0.id == id }) else { return .failure("No such task in the plan.") }
+            guard commitJournal({ $0.removeCurrentWork { $0.id == id } }) else { return refused("Lock In couldn't save the plan.") }
             return .success("Removed.")
         }
     }
