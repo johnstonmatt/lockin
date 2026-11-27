@@ -12,6 +12,10 @@ public struct WorkNode: Codable, Equatable, Identifiable, Sendable {
     public var resolved: Bool
     public var attention: Bool
     public var context: Bool
+    /// Spelled out, like `FileFormat`'s keys, so renaming a property can't change work-graph.json.
+    enum CodingKeys: String, CodingKey {
+        case id, kind, title, url, label, status, readiness, resolved, attention, context
+    }
     public init(id: String, kind: Kind, title: String, url: String = "", label: String = "Task",
                 status: String = "Open", resolved: Bool = false, attention: Bool = false, context: Bool = false) {
         self.id = id; self.kind = kind; self.title = title; self.url = url; self.label = label
@@ -39,6 +43,7 @@ public struct WorkEdge: Codable, Equatable, Identifiable, Sendable {
     public var to: String
     public var kind: Kind
     public var source: Source
+    enum CodingKeys: String, CodingKey { case from, to, kind, source }
     public var id: String { "\(kind.rawValue)|\(source.rawValue)|\(from)|\(to)" }
     public var pair: String { "\(from)|\(to)" }
     public init(from: String, to: String, kind: Kind, source: Source) {
@@ -53,6 +58,7 @@ public struct WorkImport: Codable, Equatable, Identifiable, Sendable {
     public var edges: [WorkEdge]
     public var warnings: [String]
     public var refreshedAt: Date
+    enum CodingKeys: String, CodingKey { case id, url, nodeIDs, edges, warnings, refreshedAt }
     public init(id: String, url: String, nodeIDs: [String], edges: [WorkEdge], warnings: [String] = [], refreshedAt: Date = Date()) {
         self.id = id; self.url = url; self.nodeIDs = nodeIDs; self.edges = edges
         self.warnings = warnings; self.refreshedAt = refreshedAt
@@ -70,28 +76,21 @@ public struct WorkGraph: Codable, Equatable, Sendable {
     public var schemaVersion = 1
     public var nodes: [WorkNode] = []
     public var imports: [WorkImport] = []
-    public var hiddenNodeIDs: Set<String> = []
     public init() {}
     enum CodingKeys: String, CodingKey {
         case schema = "$schema", schemaVersion = "schema_version", nodes, imports
-        case hiddenNodeIDs = "hidden_node_ids"
     }
 
-    public var visibleNodes: [WorkNode] { nodes.filter { !hiddenNodeIDs.contains($0.id) } }
-    public var sourceEdges: [WorkEdge] {
-        var seen = Set<String>()
-        return imports.flatMap(\.edges).filter { seen.insert($0.id).inserted }
+    public var sourceEdges: [WorkEdge] { imports.flatMap(\.edges).uniqued(by: \.id) }
+    /// Source edges between nodes in the graph. A focused graph keeps every import, so edges can name nodes it left out.
+    private var nodeEdges: [WorkEdge] {
+        let ids = Set(nodes.map(\.id))
+        return sourceEdges.filter { ids.contains($0.from) && ids.contains($0.to) }
     }
-    public var memberships: [WorkEdge] {
-        let ids = Set(visibleNodes.map(\.id))
-        return sourceEdges.filter { $0.kind != .depends && ids.contains($0.from) && ids.contains($0.to) }
-    }
+    public var memberships: [WorkEdge] { nodeEdges.filter { $0.kind != .depends } }
     /// Keep conflicting evidence for inspection, while the execution graph remains acyclic.
     public var sequencing: (edges: [WorkEdge], conflicts: [WorkEdge]) {
-        let ids = Set(visibleNodes.map(\.id))
-        let candidates = sourceEdges.filter {
-            $0.kind == .depends && ids.contains($0.from) && ids.contains($0.to)
-        }.sorted { ($0.source.priority, $0.id) < ($1.source.priority, $1.id) }
+        let candidates = nodeEdges.filter { $0.kind == .depends }.sorted { ($0.source.priority, $0.id) < ($1.source.priority, $1.id) }
         var accepted: [WorkEdge] = [], conflicts: [WorkEdge] = []
         var pairs = Set<String>()
         for edge in candidates {
@@ -106,7 +105,7 @@ public struct WorkGraph: Codable, Equatable, Sendable {
     }
     public func blockers(of id: String) -> [WorkNode] {
         let upstream = Set(sequencing.edges.filter { $0.to == id }.map(\.from))
-        return visibleNodes.filter { upstream.contains($0.id) && !$0.resolved }
+        return nodes.filter { upstream.contains($0.id) && !$0.resolved }
     }
     public func descendants(of roots: Set<String>) -> Set<String> {
         Self.closure(of: roots, along: Self.adjacency(memberships, forward: true))
@@ -133,7 +132,7 @@ public struct WorkGraph: Codable, Equatable, Sendable {
         let upstream = Self.adjacency(sequencing.edges + memberships, forward: false)
         let included = Self.closure(of: descendants(of: selectedIDs), along: upstream)
         var result = self
-        result.nodes = visibleNodes.filter { included.contains($0.id) }
+        result.nodes = nodes.filter { included.contains($0.id) }
         return result
     }
 
@@ -165,12 +164,17 @@ public struct WorkGraph: Codable, Equatable, Sendable {
         return reached
     }
     public static func migrating(_ tasks: [Todo]) -> WorkGraph {
-        var graph = WorkGraph(), seen = Set<String>()
-        for task in tasks where task.hasTitle && seen.insert(task.workIdentity).inserted {
-            graph.nodes.append(WorkNode(id: task.workIdentity, kind: .local, title: task.title, url: task.link,
-                                        resolved: task.completed))
-        }
+        var graph = WorkGraph()
+        graph.nodes = tasks.filter(\.hasTitle).uniqued(by: \.workIdentity).map(WorkNode.init(localTask:))
         return graph
+    }
+}
+
+extension Sequence {
+    /// The first element for each key, in order.
+    public func uniqued<Key: Hashable>(by key: (Element) -> Key) -> [Element] {
+        var seen = Set<Key>()
+        return filter { seen.insert(key($0)).inserted }
     }
 }
 
@@ -187,6 +191,6 @@ public enum WorkGraphStorage {
     }
     public static func save(_ graph: WorkGraph, in directory: URL) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try (FileFormat.encoder.encode(graph) + Data("\n".utf8)).write(to: file(in: directory), options: .atomic)
+        try FileFormat.data(graph).write(to: file(in: directory), options: .atomic)
     }
 }

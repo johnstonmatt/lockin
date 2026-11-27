@@ -11,13 +11,16 @@ concurrency:
   group: release
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   # Every release must be Developer ID signed and notarized: an ad-hoc build
   # downloads quarantined and Gatekeeper rejects it. This runs before
   # release-please rather than in build-macos because by the time build-macos
-  # starts, the tag and GitHub release already exist, so failing there would
-  # leave a published release with no asset. Failing here means no release PR,
-  # and so no release, until ./Scripts/setup-release.ts has stored the secrets.
+  # starts, the tag and draft release already exist, and failing there leaves
+  # a draft to clean up. Failing here means no release PR, and so no release,
+  # until ./Scripts/setup-release.ts has stored the secrets.
   #
   # MACOS_CERTIFICATE_PASSWORD isn't checked: a .p12 exported without a
   # password is valid, and Actions can't tell an empty secret from a missing
@@ -48,7 +51,13 @@ jobs:
   # Keeps a "chore(main): release x.y.z" PR open and up to date with every
   # conventional commit that lands on main. Merging that PR is the release: it
   # bumps the version in Resources/Info.plist, writes CHANGELOG.md, tags, and
-  # cuts the GitHub release, which is what triggers the build below.
+  # creates the GitHub release as a draft, which triggers the build below.
+  #
+  # The release stays a draft until build-macos has attached the notarized
+  # zip. The app and CLI find updates through /releases/latest, which never
+  # returns drafts, so no one is offered a version they can't install yet.
+  # force-tag-creation is there because GitHub only creates a draft's tag when
+  # it's published, and release-please finds the previous release by its tag.
   #
   # release-please-config.json is strict JSON and can't explain itself, so:
   # release-type is "go" purely because that strategy writes no version file of
@@ -57,13 +66,6 @@ jobs:
   # the generic updater on the lines marked x-release-please-version. Both
   # CFBundleShortVersionString and CFBundleVersion carry the release version.
   # Nothing about the build is Go-specific.
-  #
-  # bump-minor-pre-major keeps a breaking change below 1.0 at 0.x → 0.(x+1)
-  # instead of reading a single `feat!:` as "ship 1.0.0". Going to 1.0 should
-  # be deliberate: put `Release-As: 1.0.0` in a commit footer when it's time.
-  #
-  # initial-version matters only for the very first release: with no tag to
-  # bump from, release-please would otherwise default to 1.0.0.
   release-please:
     needs: signing-secrets
     runs-on: ubuntu-latest
@@ -73,8 +75,9 @@ jobs:
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
+      sha: ${{ steps.release.outputs.sha }}
     steps:
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: release
         with:
           # GITHUB_TOKEN works, but CI runs on a release PR it opens or updates
@@ -94,9 +97,10 @@ jobs:
       contents: write
     env:
       APP: dist/Lock In.app
+      TAG: ${{ needs.release-please.outputs.tag_name }}
       # All guaranteed non-empty by signing-secrets, so no step below is
       # conditional on them: a release is signed, notarized and passes
-      # Gatekeeper, or the job fails and nothing is uploaded.
+      # Gatekeeper, or the job fails and the release stays a draft.
       MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
       MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
       MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
@@ -104,11 +108,11 @@ jobs:
       APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
       APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
     steps:
-      # Build the tag, not the branch head: another push can land on main
-      # between the release commit and this job starting.
-      - uses: actions/checkout@v4
+      # Build the release commit, not the branch head: another push can land
+      # on main between the release commit and this job starting.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: ${{ needs.release-please.outputs.sha }}
 
       - name: Toolchain
         run: xcodebuild -version && swift --version
@@ -135,8 +139,9 @@ jobs:
           # that no one is there to answer.
           security set-key-partition-list -S apple-tool:,apple:,codesign: \
             -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
-          # Keep login.keychain in the search list: the Apple intermediate
-          # certs live there and codesign needs them to build the chain.
+          # -s replaces the user search list, so login.keychain-db is named
+          # again to keep it. The Developer ID intermediate codesign chains
+          # through is in the System keychain, which this list doesn't affect.
           security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
 
           rm "$RUNNER_TEMP/cert.p12"
@@ -175,21 +180,32 @@ jobs:
       - name: Notarize and staple
         run: |
           set -euo pipefail
-          echo "$APPLE_API_KEY" | base64 --decode > "$RUNNER_TEMP/api-key.p8"
+          KEY="$RUNNER_TEMP/api-key.p8"
+          trap 'rm -f "$KEY"' EXIT
+          echo "$APPLE_API_KEY" | base64 --decode > "$KEY"
+          auth=(--key "$KEY" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER")
 
           # notarytool won't take a bundle directory; the zip is purely a
           # transport for the submission.
           ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/notarize.zip"
-          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
-            --key "$RUNNER_TEMP/api-key.p8" \
-            --key-id "$APPLE_API_KEY_ID" \
-            --issuer "$APPLE_API_ISSUER" \
-            --wait
+          # The status is checked here, not left to the exit code, so a
+          # rejection fails this step with Apple's log instead of at stapling.
+          result="$(xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+            "${auth[@]}" --wait --output-format json)" || true
+          echo "$result"
+          id="$(jq -r '.id // empty' <<< "$result" 2>/dev/null || true)"
+          status="$(jq -r '.status // empty' <<< "$result" 2>/dev/null || true)"
+          if [ "$status" != "Accepted" ]; then
+            echo "::error::Notarization status is '${status:-unknown}', not Accepted."
+            if [ -n "$id" ]; then
+              xcrun notarytool log "$id" "${auth[@]}" || true
+            fi
+            exit 1
+          fi
 
           # Staple the ticket into the .app itself so first launch validates
           # without a network round trip. The asset is zipped after this.
           xcrun stapler staple "$APP"
-          rm "$RUNNER_TEMP/api-key.p8"
 
       - name: Verify Gatekeeper acceptance
         run: spctl --assess --type execute --verbose=4 "$APP"
@@ -200,13 +216,20 @@ jobs:
           # ditto, not `zip`: it preserves the symlinks and extended attributes
           # inside a .app bundle that the signature is computed over.
           ARCH="$(uname -m)"
-          ASSET="LockIn-${{ needs.release-please.outputs.tag_name }}-macos-$ARCH.zip"
+          ASSET="LockIn-$TAG-macos-$ARCH.zip"
           ditto -c -k --keepParent "$APP" "$ASSET"
           echo "ASSET=$ASSET" >> "$GITHUB_ENV"
 
       - name: Attach to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release upload "${{ needs.release-please.outputs.tag_name }}" \
-            "$ASSET" --clobber
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "$TAG" "$ASSET" --clobber
+
+      # Last, so the release only becomes visible to /releases/latest, and so
+      # to the updater, once the asset it downloads is attached.
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release edit "$TAG" --draft=false

@@ -4,20 +4,21 @@ public struct WorkInput: Equatable, Sendable {
     public let title: String?
     public let link: String?
 
+    /// Blank fields are nil; others are trimmed.
     public init(title: String? = nil, link: String? = nil) {
-        self.title = title?.trimmed.isEmpty == true ? nil : title?.trimmed
-        self.link = link?.trimmed.isEmpty == true ? nil : link?.trimmed
+        self.title = title.map(\.trimmed).flatMap { $0.isEmpty ? nil : $0 }
+        self.link = link.map(\.trimmed).flatMap { $0.isEmpty ? nil : $0 }
     }
 
+    /// "<title>", "<link>", or "<title> - <link>".
     public init(_ text: String) throws {
         let text = text.trimmed
+        let separator = text.range(of: " - ", options: .backwards)
+        let trailingLink = separator.map { String(text[$0.upperBound...]) }
         if !text.isEmpty, Todo.isValidLink(text) {
             self.init(link: text)
-        } else if let separator = text.range(of: " - ", options: .backwards),
-                  Todo.isValidLink(String(text[separator.upperBound...])),
-                  !text[separator.upperBound...].isEmpty {
-            let title = String(text[..<separator.lowerBound]).trimmed
-            self.init(title: title.isEmpty ? nil : title, link: String(text[separator.upperBound...]))
+        } else if let separator, let trailingLink, !trailingLink.isBlank, Todo.isValidLink(trailingLink) {
+            self.init(title: String(text[..<separator.lowerBound]), link: trailingLink)
         } else {
             self.init(title: text)
         }

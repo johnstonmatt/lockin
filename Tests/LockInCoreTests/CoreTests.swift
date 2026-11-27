@@ -16,6 +16,30 @@ final class CoreTests: XCTestCase {
         XCTAssertNil(WebsiteRule.normalize("https://user:password@example.com"))
         XCTAssertNil(WebsiteRule.normalize("file:///tmp/a"))
     }
+    func testRulePathsMatchWholeSegments() {
+        let rule = "youtube.com/shorts"
+        XCTAssertTrue(WebsiteRule.matches(rule, url: URL(string: "https://youtube.com/shorts")!))
+        XCTAssertTrue(WebsiteRule.matches(rule, url: URL(string: "https://youtube.com/shorts/abc")!))
+        XCTAssertFalse(WebsiteRule.matches(rule, url: URL(string: "https://youtube.com/shortstack")!))
+        XCTAssertTrue(WebsiteRule.matches("example.com/docs/", url: URL(string: "https://example.com/docs/guide")!),
+                      "a rule ending in / covers everything below it")
+        XCTAssertFalse(WebsiteRule.matches("example.com/docs/", url: URL(string: "https://example.com/docsearch")!))
+    }
+    func testRulesWithAQueryMatchThatQueryOnly() {
+        let rule = "youtube.com/watch?v=abc"
+        XCTAssertTrue(WebsiteRule.matches(rule, url: URL(string: "https://www.youtube.com/watch?v=abc")!))
+        XCTAssertFalse(WebsiteRule.matches(rule, url: URL(string: "https://www.youtube.com/watch?v=xyz")!))
+        XCTAssertFalse(WebsiteRule.matches(rule, url: URL(string: "https://www.youtube.com/watch")!))
+    }
+    func testBlockListAndUpperCaseSchemes() {
+        let rules = ["reddit.com", "youtube.com/shorts"]
+        XCTAssertTrue(WebsiteRule.shouldBlock(URL(string: "https://www.reddit.com/r/swift")!, rules: rules, mode: .block))
+        XCTAssertTrue(WebsiteRule.shouldBlock(URL(string: "https://youtube.com/shorts/1")!, rules: rules, mode: .block))
+        XCTAssertFalse(WebsiteRule.shouldBlock(URL(string: "https://youtube.com/watch?v=1")!, rules: rules, mode: .block))
+        XCTAssertFalse(WebsiteRule.shouldBlock(URL(string: "https://docs.example.com")!, rules: rules, mode: .block))
+        XCTAssertTrue(WebsiteRule.shouldBlock(URL(string: "HTTPS://WWW.REDDIT.COM/r/swift")!, rules: rules, mode: .block))
+        XCTAssertFalse(WebsiteRule.shouldBlock(URL(string: "about:blank")!, rules: rules, mode: .block))
+    }
     func testAllowListAndInternalPages() {
         XCTAssertTrue(WebsiteRule.shouldBlock(URL(string: "https://news.example.com")!, rules: ["docs.example.com"], mode: .allow))
         XCTAssertFalse(WebsiteRule.shouldBlock(URL(string: "https://docs.example.com/help")!, rules: ["docs.example.com"], mode: .allow))

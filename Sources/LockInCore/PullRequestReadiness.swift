@@ -9,6 +9,8 @@ public struct PullRequestReadiness: Codable, Equatable, Sendable {
     public var mergeState: String
     public var isDraft: Bool
     public var headOID: String
+    /// Spelled out so renaming a property can't change work-graph.json.
+    enum CodingKeys: String, CodingKey { case checks, reviewDecision, mergeState, isDraft, headOID }
     public init(checks: String?, reviewDecision: String?, mergeState: String, isDraft: Bool, headOID: String) {
         self.checks = checks; self.reviewDecision = reviewDecision; self.mergeState = mergeState
         self.isDraft = isDraft; self.headOID = headOID

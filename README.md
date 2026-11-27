@@ -24,7 +24,7 @@ For your first session:
 3. Open a supported browser and click **Enable browser blocking**. Allow macOS Automation access when prompted.
 4. In **Focus**, set your target hours and start the session.
 
-The menu-bar companion keeps the timer and session controls close by. **Control–Option–Command–F** opens the pause prompt during a session.
+The menu-bar companion keeps the timer and session controls close by. **Control–Option–Command–F** starts a session from your plan, or opens the pause prompt during one.
 
 ## Sessions and breaks
 
@@ -75,7 +75,7 @@ A merged PR satisfies its dependencies; a closed, unmerged PR does not. **Done f
 
 ## Blocking distractions
 
-Website rules support domains, subdomains, path prefixes, and exact query matching. Choose a block list, or an allow list that blocks other HTTP/S pages. Application blocking repeatedly hides selected apps while preserving their running processes and unsaved work.
+Website rules support domains, subdomains, paths, and exact query matching. A path covers the pages below it by whole segment: `youtube.com/shorts` blocks `/shorts/abc` but not `/shortstack`. Choose a block list, or an allow list that blocks other HTTP/S pages. Application blocking repeatedly hides selected apps while preserving their running processes and unsaved work.
 
 Browser blocking supports **Safari, Chrome, Brave, Edge, Vivaldi, and Arc**. It redirects matching tabs to a local focus page. Refresh that page to return to the original URL during a break; the URL is blocked again during work.
 

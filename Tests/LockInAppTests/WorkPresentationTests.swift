@@ -2,7 +2,7 @@ import XCTest
 import LockInCore
 @testable import LockIn
 
-final class WorkPresentationTests: XCTestCase {
+final class WorkPresentationTests: StoreTestCase {
     func testViewsShareVisibilityAndCollapsedRepresentatives() {
         var graph = WorkGraph(); graph.merge(WorkGraphLayoutTests.fixture())
         for filter in WorkFilter.allCases {
@@ -28,9 +28,7 @@ final class WorkPresentationTests: XCTestCase {
     }
 
     @MainActor func testStoreImportUsesInjectedProviderAndClearsBusyState() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let store = Store(directory: directory, runTimer: false, enforceBlocking: false, channel: nil)
+        let store = makeStore()
         let seed = WorkGraphLayoutTests.fixture()
         let importer = WorkImporter(fetchLinear: { _ in seed }, enrichGitHub: { $0 })
         let operation = try store.importWork("ENG-200", using: importer)

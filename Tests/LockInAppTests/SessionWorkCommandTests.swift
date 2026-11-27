@@ -2,9 +2,19 @@ import XCTest
 import LockInCore
 @testable import LockIn
 
-final class SessionWorkCommandTests: XCTestCase {
+final class SessionWorkCommandTests: StoreTestCase {
+    @MainActor func testEmptyPlanSelectsNoWork() throws {
+        let store = makeStore()
+        XCTAssertEqual(store.journal.draft.count, 1, "the planner keeps a blank row")
+        XCTAssertEqual(store.sessionWorkIDs, [])
+        try store.addWork("Plan the rollout")
+        store.removeWorkFromSession(try XCTUnwrap(store.sessionWorkIDs.first))
+        XCTAssertEqual(store.sessionWorkIDs, [])
+        XCTAssertEqual(store.journal.draft.count, 1)
+    }
+
     @MainActor func testDuplicateNamesRejectWithoutChangingSessionOrDisk() throws {
-        let store = store()
+        let store = makeStore()
         try store.addWork("Plan the rollout")
         let graph = store.workGraph
         let tasks = store.graphSessionTasks
@@ -15,11 +25,11 @@ final class SessionWorkCommandTests: XCTestCase {
         }
         XCTAssertEqual(store.workGraph, graph)
         XCTAssertEqual(store.graphSessionTasks, tasks)
-        XCTAssertEqual(self.store().workGraph, graph)
+        XCTAssertEqual(makeStore().workGraph, graph)
     }
 
     @MainActor func testAddWorkRejectsEquivalentSelectedLinksWithoutMutation() throws {
-        let store = store()
+        let store = makeStore()
         let nodes = [
             WorkNode(id: "linear:1", kind: .linear, title: "Issue", url: "https://linear.app/team/issue/ENG-1/old-title"),
             WorkNode(id: "github:org/repo#12", kind: .pullRequest, title: "PR", url: "https://github.com/org/repo/pull/12")
@@ -37,7 +47,7 @@ final class SessionWorkCommandTests: XCTestCase {
     }
 
     @MainActor func testAddWorkCreatesNamesAndLinksAndReusesSavedLinks() throws {
-        let store = store()
+        let store = makeStore()
         try store.addWork("Plan the rollout")
         try store.addWork("https://example.com/")
         XCTAssertEqual(store.graphSessionTasks.count, 2)
@@ -51,7 +61,7 @@ final class SessionWorkCommandTests: XCTestCase {
     }
 
     @MainActor func testCLIAddsLocalWorkAndUsesUIDuplicateChecks() async throws {
-        let store = store()
+        let store = makeStore()
         let added = await store.perform(.addTask(title: "Plan the rollout", link: ""))
         XCTAssertTrue(added.ok, added.message)
         let duplicate = await store.perform(.addTask(title: "PLAN the rollout", link: ""))
@@ -61,14 +71,14 @@ final class SessionWorkCommandTests: XCTestCase {
         XCTAssertTrue(linked.ok)
         XCTAssertEqual(store.sessionGraph.nodes.first { $0.url == "https://example.com" }?.title, "Reference")
         XCTAssertEqual(store.graphSessionTasks.count, 2)
-        XCTAssertEqual(self.store().sessionGraph, store.sessionGraph)
+        XCTAssertEqual(makeStore().sessionGraph, store.sessionGraph)
     }
 
     @MainActor func testCLIImportsLinearDependenciesAndRefreshesSavedWork() async throws {
-        let store = store()
+        let store = makeStore()
         let issue = WorkNode(id: "linear:ENG-1", kind: .linear, title: "Feature", url: "https://linear.app/team/issue/ENG-1")
         let child = WorkNode(id: "github:org/repo#12", kind: .pullRequest, title: "Implementation", url: "https://github.com/org/repo/pull/12")
-        let result = WorkImportResult(nodes: [issue, child], snapshot: WorkImport(id: issue.id, url: issue.url,
+        let result = WorkImportResult(nodes: [issue, child], snapshot: .fixture(id: issue.id, url: issue.url,
             nodeIDs: [issue.id, child.id], edges: [WorkEdge(from: issue.id, to: child.id, kind: .implements, source: .linear)]))
         let importer = WorkImporter(fetchLinear: { input in
             XCTAssertEqual(input, "ENG-1")
@@ -91,11 +101,11 @@ final class SessionWorkCommandTests: XCTestCase {
         let addedAgain = await store.perform(.addTask(title: issue.title, link: issue.url), using: refresh)
         XCTAssertTrue(addedAgain.ok, addedAgain.message)
         XCTAssertEqual(store.sessionGraph.nodes.first { $0.id == child.id }?.resolved, true)
-        XCTAssertEqual(self.store().sessionGraph, store.sessionGraph)
+        XCTAssertEqual(makeStore().sessionGraph, store.sessionGraph)
     }
 
     @MainActor func testCLIImportsGitHubIntoActiveSession() async {
-        let store = store()
+        let store = makeStore()
         store.start()
         let importer = WorkImporter(fetchLinear: { _ in throw WorkImportError("Unexpected Linear request") }, enrichGitHub: { seed in
             var result = seed
@@ -110,7 +120,7 @@ final class SessionWorkCommandTests: XCTestCase {
 
     @MainActor func testCLIReportsImportFailureAndCancellation() async {
         for canceled in [false, true] {
-            let store = store()
+            let store = makeStore()
             let importer = WorkImporter(fetchLinear: { _ in
                 if canceled { throw CancellationError() }
                 throw WorkImportError("Linear credentials are missing.")
@@ -124,7 +134,7 @@ final class SessionWorkCommandTests: XCTestCase {
     }
 
     @MainActor func testUIAndCLIShareInputAndReviewValidation() async throws {
-        let store = store()
+        let store = makeStore()
         let operation = try store.addWork(" Reference - https://example.com/docs ")
         let message = try await operation.value
         XCTAssertTrue(message.contains("Reference"))
@@ -141,22 +151,22 @@ final class SessionWorkCommandTests: XCTestCase {
     }
 
     @MainActor func testImportOperationRetainsItsResultAfterStoreClearsTask() async throws {
-        let store = store()
+        let store = makeStore()
         let issue = WorkNode(id: "linear:ENG-1", kind: .linear, title: "Issue")
-        let result = WorkImportResult(nodes: [issue], snapshot: WorkImport(id: issue.id, url: "ENG-1", nodeIDs: [issue.id], edges: []))
+        let result = WorkImportResult(nodes: [issue], snapshot: .fixture(id: issue.id, url: "ENG-1", nodeIDs: [issue.id], edges: []))
         let importer = WorkImporter(fetchLinear: { _ in result }, enrichGitHub: { $0 })
         let operation = try store.addWork("ENG-1", using: importer)
         XCTAssertThrowsError(try store.addWork("Another task"))
         let message = try await operation.value
-        XCTAssertNil(store.workImportTask)
-        let retained = try await operation.value
-        XCTAssertEqual(retained, message)
+        XCTAssertNil(store.workImportTask, "the store lets go of the task as it finishes")
+        XCTAssertEqual(message, "Imported 1 work items.")
+        XCTAssertEqual(store.sessionWorkIDs, [issue.id])
     }
 
     @MainActor func testImportReportsSessionChangeWithoutAddingToNewSession() async throws {
-        let store = store()
+        let store = makeStore()
         let issue = WorkNode(id: "linear:ENG-1", kind: .linear, title: "Issue")
-        let result = WorkImportResult(nodes: [issue], snapshot: WorkImport(id: issue.id, url: "ENG-1", nodeIDs: [issue.id], edges: []))
+        let result = WorkImportResult(nodes: [issue], snapshot: .fixture(id: issue.id, url: "ENG-1", nodeIDs: [issue.id], edges: []))
         let importer = WorkImporter(fetchLinear: { _ in result }, enrichGitHub: { $0 })
         let operation = try store.addWork("ENG-1", using: importer)
         store.start()
@@ -169,7 +179,7 @@ final class SessionWorkCommandTests: XCTestCase {
     }
 
     @MainActor func testCancelImportOperationLeavesSavedWorkUnchanged() async throws {
-        let store = store()
+        let store = makeStore()
         let importer = WorkImporter(fetchLinear: { _ in
             XCTFail("Canceled work must not fetch")
             throw CancellationError()
@@ -184,28 +194,70 @@ final class SessionWorkCommandTests: XCTestCase {
         XCTAssertFalse(store.workImporting)
     }
 
-    private var directory: URL!
-    override func setUp() { directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString) }
-    override func tearDown() { try? FileManager.default.removeItem(at: directory) }
-    @MainActor private func store() -> Store { Store(directory: directory, runTimer: false, enforceBlocking: false, channel: nil) }
-
-    @MainActor func testCompletionAndRenameUseActiveSessionWithoutChangingDraftOrSource() {
-        let store = store()
+    @MainActor func testCompletionAndRenameUseActiveSessionWithoutChangingDraftOrSource() throws {
+        let store = makeStore()
         let draft = Todo(title: "Next session")
         let remote = WorkNode(id: "pr", kind: .pullRequest, title: "Remote title", status: "Passing")
-        var task = Todo(title: remote.title)
-        task.workNodeID = remote.id
+        let local = Todo(title: "Local task")
         XCTAssertTrue(store.editWorkGraph { $0.nodes = [remote] })
         store.commitJournal {
             $0.setPlan([draft])
-            $0.sessions.append(WorkLog(todos: [task], targetSeconds: 60, now: Date()))
+            $0.sessions.append(WorkLog(todos: [Todo(work: remote), local], targetSeconds: 60, now: clock.now))
         }
         store.setSessionWorkDone(remote.id, done: true)
-        store.renameSessionWork(remote.id, title: "Session title", link: "")
         XCTAssertTrue(store.isSessionWorkDone(remote.id))
         XCTAssertFalse(store.isSessionWorkDone("unknown"))
-        XCTAssertEqual(store.graphSessionTasks.first?.title, "Remote title")
+        store.renameSessionWork(remote.id, title: "Session title", link: "")
+        XCTAssertEqual(store.graphSessionTasks.first?.title, "Remote title", "imported work keeps its source's title")
+        store.renameSessionWork(local.workIdentity, title: "Renamed task", link: "https://example.com/task")
+        let renamed = try XCTUnwrap(store.graphSessionTasks.first { $0.id == local.id })
+        XCTAssertEqual(renamed.title, "Renamed task")
+        XCTAssertEqual(renamed.link, "https://example.com/task")
+        XCTAssertEqual(store.workGraph.nodes.first { $0.id == local.workIdentity }?.title, "Renamed task")
         XCTAssertEqual(store.journal.draft, [draft])
         XCTAssertEqual(store.workGraph.nodes.first { $0.id == remote.id }, remote)
+    }
+
+    @MainActor func testWorkCantBeAddedWhileTheGraphIsUnwritable() throws {
+        let store = makeStore()
+        store.workGraphWritable = false
+        XCTAssertThrowsError(try store.addWork("Plan the rollout")) {
+            XCTAssertEqual($0.localizedDescription, "Work can't be added right now. Try again shortly.")
+        }
+        XCTAssertTrue(store.workGraph.nodes.isEmpty)
+        XCTAssertTrue(store.graphSessionTasks.isEmpty)
+    }
+
+    @MainActor func testRenamingLocalWorkRejectsAnInvalidLink() throws {
+        let store = makeStore()
+        try store.addWork("Plan the rollout")
+        let id = try XCTUnwrap(store.sessionWorkIDs.first)
+        for (title, link) in [("Renamed", "notaurl"), ("Renamed", "ftp://example.com/file"), ("  ", "")] {
+            store.renameSessionWork(id, title: title, link: link)
+            XCTAssertEqual(store.graphSessionTasks.map(\.title), ["Plan the rollout"], "\(title) \(link)")
+            XCTAssertEqual(store.graphSessionTasks.first?.link, "")
+        }
+        XCTAssertEqual(store.workGraph.nodes.first { $0.id == id }?.title, "Plan the rollout")
+    }
+
+    @MainActor func testSyncLocalWorkUpdatesLocalNodesFromTasks() throws {
+        let store = makeStore()
+        let remote = WorkNode(id: "pr", kind: .pullRequest, title: "Remote title", status: "Open")
+        XCTAssertTrue(store.editWorkGraph { $0.nodes = [remote] })
+        try store.addWork("Plan the rollout")
+        let id = try XCTUnwrap(store.sessionWorkIDs.first)
+        store.journal.draft = store.journal.draft.map { task in
+            var task = task
+            task.title = "Roll out"; task.link = "https://example.com/rollout"; task.completed = true
+            return task
+        } + [Todo(work: remote)]
+        store.syncLocalWork()
+        let local = try XCTUnwrap(store.workGraph.nodes.first { $0.id == id })
+        XCTAssertEqual(local.title, "Roll out")
+        XCTAssertEqual(local.url, "https://example.com/rollout")
+        XCTAssertTrue(local.resolved)
+        XCTAssertEqual(local.status, "Done")
+        XCTAssertEqual(store.workGraph.nodes.first { $0.id == remote.id }, remote, "imported work keeps its source's details")
+        XCTAssertEqual(try WorkGraphStorage.load(from: directory), store.workGraph, "the update is saved")
     }
 }

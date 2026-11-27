@@ -7,7 +7,7 @@ struct WorkHierarchy {
     let children: [String: [String]]
 
     init(graph: WorkGraph) {
-        let nodes = Dictionary(uniqueKeysWithValues: graph.visibleNodes.map { ($0.id, $0) })
+        let nodes = Dictionary(uniqueKeysWithValues: graph.nodes.map { ($0.id, $0) })
         var parent: [String: String] = [:]
         // Shared PRs have one stable owner; malformed membership cycles cannot form a tree.
         for edge in graph.memberships.sorted(by: { $0.id < $1.id })

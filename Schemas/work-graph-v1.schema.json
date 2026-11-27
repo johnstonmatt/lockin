@@ -8,8 +8,7 @@
   "required": [
     "schema_version",
     "nodes",
-    "imports",
-    "hidden_node_ids"
+    "imports"
   ],
   "properties": {
     "$schema": {
@@ -29,13 +28,6 @@
       "items": {
         "$ref": "#/$defs/import"
       }
-    },
-    "hidden_node_ids": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      },
-      "uniqueItems": true
     }
   },
   "$defs": {

@@ -1,9 +1,10 @@
 import SwiftUI
 import AppKit
+import LockInCore
 
 @main struct LockInApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
-    @StateObject private var store = Store()
+    @StateObject private var store = Store(directory: Storage.directory, channel: .app)
     @StateObject private var updater = AppUpdater()
     @Environment(\.openWindow) private var openWindow
     @AppStorage("showMenuBarItem") private var showMenuBarItem = true
@@ -80,7 +81,7 @@ struct MenuPanel: View {
                 Spacer()
                 Button("Quit") { NSApp.terminate(nil) }.disabled(store.locked)
             }.buttonStyle(.pointer(.plain))
-        }.padding(22).frame(width: 310).tint(.mint).buttonStyle(.pointer(.automatic))
+        }.padding(22).frame(width: 310).tint(accent).buttonStyle(.pointer(.automatic))
     }
     private var caption: String {
         switch store.workLog?.phase {

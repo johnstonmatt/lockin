@@ -1,12 +1,9 @@
-#!/usr/bin/env -S deno run --allow-run=gh,security,xcrun --allow-read --allow-write --allow-env=HOME
+#!/usr/bin/env -S deno run --allow-run=gh,security,xcrun,/usr/bin/openssl --allow-read --allow-write --allow-env=HOME
 //
 // Interactive, one-time setup for the six Apple credentials the release
 // workflow needs. Run it from the repo root as ./Scripts/setup-release.ts
 // (requires Deno). The shebang carries the permissions; without it a shell
 // would run this file as sh and evaluate the backticks in these comments.
-//
-// Adapted from the same script in prpose and mem-gui; the secret names and
-// checks match, so one Developer ID .p12 and notary key serve all three repos.
 //
 // The point of this being a script rather than a README checklist: every one of
 // these credentials fails *silently* if it's subtly wrong. A .p12 exported
@@ -270,11 +267,8 @@ async function existingSecrets(): Promise<Set<string>> {
  * root — hence the non-greedy name and no end anchor. Without -v it prints two
  * sections ("Matching identities" then "Valid identities only"), so a trusted
  * identity is listed twice; dedupe rather than offering it twice in a menu.
- *
- * Exported for the test — the shape of this output is the one thing here that's
- * pure guesswork about another tool, so it's pinned against real captures.
  */
-export function parseIdentities(output: string): string[] {
+function parseIdentities(output: string): string[] {
   const names = output
     .split("\n")
     .map((line) => line.match(/^\s*\d+\)\s+\S+\s+"(.+?)"/)?.[1])
@@ -283,8 +277,7 @@ export function parseIdentities(output: string): string[] {
 }
 
 /**
- * Imports the .p12 into a throwaway keychain — byte for byte the same
- * `security import` the release workflow runs. That checks the export password
+ * Imports the .p12 into a throwaway keychain. That checks the export password
  * and the presence of the private key in one shot, and hands back the identity
  * names baked into the certificate, so MACOS_SIGN_IDENTITY is read off the cert
  * instead of retyped from a screenshot.
@@ -320,22 +313,14 @@ async function identitiesInCertificate(
       keychain,
     ]);
 
-    const imported = await run("security", [
-      "import",
+    const imported = await importCertificate(
       p12,
-      "-k",
-      keychain,
-      "-P",
       password,
-      "-T",
-      "/usr/bin/codesign",
-    ]);
-    if (imported.code !== 0) {
-      return imported.stderr.includes("MAC verification failed") ||
-          imported.stderr.includes("Invalid password")
-        ? "Wrong export password for that .p12."
-        : imported.stderr || "Couldn't import that .p12.";
-    }
+      keychain,
+      keychainPassword,
+      directory,
+    );
+    if (imported !== undefined) return imported;
 
     // Two passes, because -v filters to identities that currently chain to a
     // trusted root. A cert whose Apple intermediate isn't installed locally is
@@ -364,6 +349,58 @@ async function identitiesInCertificate(
   }
 }
 
+/**
+ * `security import -P` takes the password on argv, where every `ps` on the box
+ * can read it. Instead openssl reads it on stdin and re-encrypts the keys under
+ * the throwaway keychain password, and `security import` gets only that.
+ * /usr/bin/openssl is LibreSSL, which reads both the RC2/3DES and AES .p12
+ * encodings Keychain Access exports without needing a legacy flag.
+ */
+async function importCertificate(
+  p12: string,
+  password: string,
+  keychain: string,
+  scratchPassword: string,
+  directory: string,
+): Promise<string | undefined> {
+  const pem = `${directory}/identities.pem`;
+  const decrypted = await run("/usr/bin/openssl", [
+    "pkcs12",
+    "-in",
+    p12,
+    "-passin",
+    "stdin",
+    "-passout",
+    `pass:${scratchPassword}`,
+    "-out",
+    pem,
+  ], `${password}\n`);
+  if (decrypted.code !== 0) {
+    return decrypted.stderr.includes("invalid password")
+      ? "Wrong export password for that .p12."
+      : decrypted.stderr || "Couldn't read that .p12.";
+  }
+
+  const imported = await run("security", [
+    "import",
+    pem,
+    "-k",
+    keychain,
+    "-f",
+    "pemseq",
+    "-t",
+    "agg",
+    "-P",
+    scratchPassword,
+    "-T",
+    "/usr/bin/codesign",
+  ]);
+  if (imported.code !== 0) {
+    return imported.stderr || "Couldn't import that .p12.";
+  }
+  return undefined;
+}
+
 interface Certificate {
   base64: string;
   password: string;
@@ -383,7 +420,7 @@ async function collectCertificate(): Promise<Certificate> {
     const path = await askFile("Path to the .p12 (drag it in)", ".p12");
     const password = askSecret("Export password for the .p12:");
 
-    out("Verifying against `security import`… ");
+    out("Verifying the .p12… ");
     const result = await identitiesInCertificate(path, password);
     if (typeof result === "string") {
       out("\n");
@@ -507,9 +544,6 @@ async function collectNotaryKey(): Promise<NotaryKey> {
 
 // ----------------------------------------------------------------------- main
 
-// Guarded rather than run at the top level: the test imports parseIdentities
-// from this module, and a bare top-level flow would kick off the whole
-// interactive setup — and then Deno.exit() out of the test run — on import.
 async function main(): Promise<void> {
   heading("Release credential setup for Lock In");
   note("Sets up the Apple secrets used by .github/workflows/release.yml.");

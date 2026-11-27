@@ -4,7 +4,6 @@ import LockInCore
 /// `lockin upgrade`: installs the latest GitHub release, using the install script that ships inside it.
 /// That's the same script `./install-app` runs, so an upgrade pauses and resumes a session exactly like a local install.
 enum Upgrade {
-    static let repository = "johnstonmatt/lockin"
     static let installedApp = URL(fileURLWithPath: "/Applications/Lock In.app")
     #if arch(arm64)
     static let architecture = "arm64"
@@ -20,9 +19,11 @@ enum Upgrade {
 
     static func run() throws -> Int32 {
         let latest = try release()
-        let version = latest.tagName.hasPrefix("v") ? String(latest.tagName.dropFirst()) : latest.tagName
+        guard let version = ReleaseVersion.version(fromTag: latest.tagName) else {
+            throw UsageError("GitHub returned an invalid release version (\(latest.tagName)).")
+        }
         if let installed = bundleVersion(of: installedApp) {
-            switch compare(installed, version) {
+            switch ReleaseVersion.compare(installed, version) {
             case .orderedSame: print("Lock In \(installed) is the latest release."); return 0
             case .orderedDescending: print("Lock In \(installed) is newer than the latest release (\(version))."); return 0
             case .orderedAscending: print("Upgrading Lock In \(installed) → \(version)")
@@ -51,7 +52,7 @@ enum Upgrade {
         } catch { throw UsageError("The \(latest.tagName) download failed signature checks, so it wasn't installed.") }
         let script = app.appendingPathComponent("Contents/Resources/install.sh")
         guard FileManager.default.fileExists(atPath: script.path) else {
-            throw UsageError("\(latest.tagName) predates lockin upgrade. Download it from https://github.com/\(repository)/releases.")
+            throw UsageError("\(latest.tagName) predates lockin upgrade. Download it from https://github.com/\(ReleaseVersion.repository)/releases.")
         }
 
         let install = Process()
@@ -67,13 +68,8 @@ enum Upgrade {
         return (NSDictionary(contentsOf: plist)?["CFBundleShortVersionString"]) as? String
     }
 
-    /// Dotted versions compared number by number: 0.10.0 is newer than 0.9.1.
-    static func compare(_ a: String, _ b: String) -> ComparisonResult {
-        ReleaseVersion.compare(a, b)
-    }
-
     private static func release() throws -> Release {
-        var request = URLRequest(url: URL(string: "https://api.github.com/repos/\(repository)/releases/latest")!)
+        var request = URLRequest(url: ReleaseVersion.latestReleaseURL)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("lockin-cli", forHTTPHeaderField: "User-Agent")
         let data = try fetch(request)

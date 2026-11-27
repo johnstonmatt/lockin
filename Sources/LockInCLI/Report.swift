@@ -9,11 +9,13 @@ struct Snapshot {
     /// When the figures are true as of: now, or the last checkpoint if the app isn't running to count time.
     var asOf: Date
     var calendar = Calendar.current
+    /// The open session's file, so a poll can re-read just that file.
+    var sessionFile: URL?
 
     var session: WorkLog? { journal.openSession }
     var reviewPending: Bool { journal.pendingReviewID != nil }
     /// The tasks `lockin tasks` numbers: the running session's, or the next session's plan.
-    var tasks: [Todo] { session?.todos ?? journal.plannedTasks }
+    var tasks: [Todo] { journal.currentWork }
     /// Hardcore Mode holds the running session until its target is reached, as the app's `Store.locked` does.
     var hardcoreActive: Bool { locked && session?.targetReached(at: asOf) == false }
 

@@ -2,14 +2,7 @@ import XCTest
 import LockInCore
 @testable import LockIn
 
-final class SessionFlowTests: XCTestCase {
-    private var directory: URL!
-    override func setUp() { directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString) }
-    override func tearDown() { try? FileManager.default.removeItem(at: directory) }
-    /// A store backed by this test's temporary directory; calling it again simulates relaunching the app.
-    @MainActor private func makeStore() -> Store {
-        Store(directory: directory, runTimer: false, enforceBlocking: false, channel: nil)
-    }
+final class SessionFlowTests: StoreTestCase {
     /// A session's file as saved.
     private func sessionFile(_ id: UUID) throws -> SessionFile {
         try FileFormat.decode(SessionFile.self, from: Data(contentsOf: sessionURL(id)), supported: FileFormat.sessionVersion)
@@ -49,11 +42,8 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertEqual(store.workLog?.phase, .pause)
         XCTAssertEqual(try sessionFile(id).intervals.last?.reason, "Meeting")
         store.resume()
-        // Advance the work interval without waiting or running browser automation.
         let index = store.journal.sessions.count - 1
-        let last = store.journal.sessions[index].intervals.count - 1
-        store.journal.sessions[index].intervals[last].start = Date().addingTimeInterval(-3601)
-        store.tick()
+        advance(store, by: 3601)
         XCTAssertTrue(store.active, "reaching the target starts overtime")
         XCTAssertEqual(store.workLog?.phase, .overtime)
         XCTAssertTrue(store.timerText.hasPrefix("+"))
@@ -124,9 +114,7 @@ final class SessionFlowTests: XCTestCase {
         store.lockSession = true
         store.start()
         XCTAssertTrue(store.locked)
-        let index = store.journal.sessions.count - 1
-        store.journal.sessions[index].intervals[0].start = Date().addingTimeInterval(-3601)
-        store.tick()
+        advance(store, by: 3601)
         XCTAssertEqual(store.workLog?.phase, .overtime)
         XCTAssertFalse(store.locked, "the target is met, so Hardcore Mode no longer holds")
         store.finishSession()
@@ -180,6 +168,24 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertEqual(relaunched.workLog?.phase, .work)
         XCTAssertNil(relaunched.journal.resumeAfterUpdateID)
         XCTAssertEqual(relaunched.workLog?.intervals.filter { $0.kind == .pause }.count, 1)
+    }
+    @MainActor func testRelaunchCountsTimeTheAppWasNotRunningAsAPause() throws {
+        let store = makeStore()
+        store.journal.draft = [Todo(title: "Work")]
+        store.start()
+        let started = clock.now
+        clock.advance(by: 15)
+        let quick = makeStore()
+        XCTAssertEqual(quick.workLog?.phase, .work, "a relaunch within 15 seconds picks up where it left off")
+        XCTAssertEqual(quick.workLog?.intervals.count, 1)
+        // That relaunch saved a fresh checkpoint, so the gap is measured from it.
+        clock.advance(by: 16)
+        let late = try XCTUnwrap(makeStore().workLog)
+        XCTAssertEqual(late.phase, .pause)
+        let pause = try XCTUnwrap(late.intervals.last)
+        XCTAssertEqual(pause.reason, "App was not running; resumed from saved checkpoint")
+        XCTAssertEqual(pause.start, started.addingTimeInterval(15))
+        XCTAssertEqual(late.worked(at: clock.now), 15, "time away earns no credit")
     }
     @MainActor func testUpdateLeavesYourOwnPauseAlone() throws {
         let store = makeStore()
@@ -252,8 +258,7 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertEqual(store.workLog?.phase, .work)
 
         // A break interrupted by sleep is a break again on waking, while break time is left.
-        let index = store.journal.sessions.count - 1
-        store.journal.sessions[index].intervals[store.journal.sessions[index].intervals.count - 1].start = Date().addingTimeInterval(-3600)
+        advance(store, by: 3600)
         store.takeBreak()
         store.pauseForSleep()
         store.resumeAfterWake()

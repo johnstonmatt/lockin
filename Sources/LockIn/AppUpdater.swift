@@ -86,7 +86,7 @@ import LockInCore
 
     nonisolated static func latestVersion() async throws -> String {
         struct Release: Decodable { let tag_name: String }
-        var request = URLRequest(url: URL(string: "https://api.github.com/repos/johnstonmatt/lockin/releases/latest")!)
+        var request = URLRequest(url: ReleaseVersion.latestReleaseURL)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("LockIn", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 30
@@ -96,8 +96,7 @@ import LockInCore
             throw CommandLineTool.Failure("GitHub couldn't return the latest release. Please try again later.")
         }
         let tag = try JSONDecoder().decode(Release.self, from: data).tag_name
-        let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
-        guard !version.isEmpty, version.split(separator: ".", omittingEmptySubsequences: false).allSatisfy({ Int($0) != nil }) else {
+        guard let version = ReleaseVersion.version(fromTag: tag) else {
             throw CommandLineTool.Failure("GitHub returned an invalid release version.")
         }
         return version

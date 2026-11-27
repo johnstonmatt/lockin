@@ -41,12 +41,7 @@ public enum Storage {
         let files = (try? FileManager.default.contentsOfDirectory(at: sessionsDirectory(in: directory), includingPropertiesForKeys: nil)) ?? []
         for url in files.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) where url.pathExtension == "json" {
             do {
-                let session = try FileFormat.decode(SessionFile.self, from: Data(contentsOf: url), supported: FileFormat.sessionVersion)
-                // The schema requires one; the timeline code assumes it.
-                guard !session.intervals.isEmpty else {
-                    contents.skipped.append("\(url.lastPathComponent): a session needs at least one interval.")
-                    continue
-                }
+                let session = try readSession(at: url)
                 guard seen.insert(session.id).inserted else {
                     contents.skipped.append("\(url.lastPathComponent): another file has the same session id.")
                     continue
@@ -63,6 +58,19 @@ public enum Storage {
         }
         contents.journal.sessions.sort { $0.startedAt < $1.startedAt }
         return contents
+    }
+
+    /// Reads one session file, e.g. to follow the open session without reading the whole history again.
+    public static func readSession(at url: URL) throws -> SessionFile {
+        let session = try FileFormat.decode(SessionFile.self, from: Data(contentsOf: url), supported: FileFormat.sessionVersion)
+        // The schema requires one; the timeline code assumes it.
+        guard !session.intervals.isEmpty else { throw Invalid(message: "a session needs at least one interval.") }
+        return session
+    }
+
+    struct Invalid: LocalizedError {
+        let message: String
+        var errorDescription: String? { message }
     }
 
     public struct ReadError: LocalizedError {
@@ -124,7 +132,7 @@ public final class StorageWriter {
         try manager.createDirectory(at: Storage.sessionsDirectory(in: directory), withIntermediateDirectories: true)
         for log in journal.sessions where log.endedAt == nil || written[log.id] != log {
             let url = files[log.id] ?? newFile(startedAt: log.startedAt)
-            try data(SessionFile(log, checkpoint: checkpoint)).write(to: url, options: .atomic)
+            try FileFormat.data(SessionFile(log, checkpoint: checkpoint)).write(to: url, options: .atomic)
             written[log.id] = log; files[log.id] = url
         }
         // Sessions removed from the journal, e.g. by undoing a backfill. Only files this writer knows are removed.
@@ -135,7 +143,7 @@ public final class StorageWriter {
         }
         let settings = SettingsFile(preferences: preferences, journal: journal)
         guard settings != writtenSettings || !manager.fileExists(atPath: Storage.settingsFile(in: directory).path) else { return }
-        try data(settings).write(to: Storage.settingsFile(in: directory), options: .atomic)
+        try FileFormat.data(settings).write(to: Storage.settingsFile(in: directory), options: .atomic)
         writtenSettings = settings
     }
 
@@ -153,6 +161,4 @@ public final class StorageWriter {
             number += 1
         }
     }
-
-    private func data<T: Encodable>(_ value: T) throws -> Data { try FileFormat.encoder.encode(value) + Data("\n".utf8) }
 }

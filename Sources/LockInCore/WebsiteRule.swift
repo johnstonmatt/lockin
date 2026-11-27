@@ -1,8 +1,8 @@
 import Foundation
 
 public enum WebsiteRule {
-    /// Host boundaries prevent `notreddit.com` from matching `reddit.com`.
-    /// Paths are prefix matched; a leading *. is optional for subdomains.
+    /// Host boundaries prevent `notreddit.com` from matching `reddit.com`, and path boundaries `youtube.com/shorts`
+    /// from matching `/shortstack`. A rule's path covers the pages below it; a leading *. is optional for subdomains.
     public static func normalize(_ raw: String) -> String? {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if text.hasPrefix("*.") { text.removeFirst(2) }
@@ -19,8 +19,14 @@ public enum WebsiteRule {
               let ruleHost = parsed.host, let host = url.host?.lowercased(),
               host == ruleHost || host.hasSuffix("." + ruleHost) else { return false }
         let target = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        guard (target?.percentEncodedPath ?? "").hasPrefix(parsed.percentEncodedPath) else { return false }
+        guard covers(parsed.percentEncodedPath, target?.percentEncodedPath ?? "") else { return false }
         return parsed.percentEncodedQuery == nil || parsed.percentEncodedQuery == target?.percentEncodedQuery
+    }
+    /// Whether `path` is `rulePath` or a page below it, by whole path segments.
+    private static func covers(_ rulePath: String, _ path: String) -> Bool {
+        guard path.hasPrefix(rulePath) else { return false }
+        return rulePath.isEmpty || rulePath.hasSuffix("/") || path.count == rulePath.count
+            || path.dropFirst(rulePath.count).first == "/"
     }
     public static func shouldBlock(_ url: URL, rules: [String], mode: BlockingMode) -> Bool {
         guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return false }

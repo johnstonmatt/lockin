@@ -16,7 +16,6 @@ import LockInCore
     @Published var workImportMessage: String?
     var workGraphWritable = true
     @Published var workImportTask: Task<String, Error>?
-    var workDirectory: URL { directory }
     @Published var showPause = false
     @Published var showEndSession = false
     @Published var showReview = false
@@ -24,12 +23,16 @@ import LockInCore
     /// False when saved data couldn't be read: saving over it would lose it, so nothing is saved until it's fixed.
     private var writable = true
     private var lastCheckpoint = Date.distantPast
-    private let directory: URL
+    let directory: URL
     private let writer: StorageWriter
     /// Replaceable so tests can exercise update handling without quitting the test runner.
     var terminate: () -> Void = { NSApp?.terminate(nil) }
     private let enforceBlocking: Bool
     var workLog: WorkLog? { journal.openSession }
+    /// Work can be added during a session, or to the plan once the last session is reviewed:
+    /// saving the review replaces the plan, so earlier changes would be lost.
+    var canPlanWork: Bool { workLog != nil || journal.pendingReviewID == nil }
+    static let reviewFirstMessage = "Review your last session in Lock In before planning the next one."
     var reviewIndex: Int? { journal.sessions.firstIndex { $0.id == journal.pendingReviewID } }
     let blocker = Blocker()
     private var timer: Timer?
@@ -51,34 +54,31 @@ import LockInCore
             }
         }
     }
-    /// `directory` replaces ~/.lockin, e.g. in tests.
-    /// `channel` is where `lockin` CLI commands arrive; tests pass nil, or a channel of their own, so they never
-    /// answer the real CLI and the real app never answers them.
-    init(directory: URL? = nil, runTimer: Bool = true, enforceBlocking: Bool = true, channel: RemoteChannel? = .app) {
-        self.directory = directory ?? Storage.directory
+    /// Reads Linear and GitHub for `addWork` and `importWork` unless a call passes its own importer.
+    let importer: WorkImporter
+    /// The time, replaceable so tests don't depend on how long they take.
+    let clock: () -> Date
+    /// `directory` is ~/.lockin in the app and a temporary directory in tests. `channel` is where `lockin` CLI
+    /// commands arrive: `.app` in the app; tests pass nil, or a channel of their own, so they never answer the real
+    /// CLI and the real app never answers them. Neither has a default, so a test can't reach the real ones by omission.
+    init(directory: URL, runTimer: Bool = true, enforceBlocking: Bool = true, channel: RemoteChannel?,
+         importer: WorkImporter = WorkConnections.importer, clock: @escaping () -> Date = Date.init) {
+        self.directory = directory
+        self.importer = importer
+        self.clock = clock
+        now = clock()
         self.enforceBlocking = enforceBlocking
         var contents: Storage.Contents?
-        do { contents = try Storage.load(from: self.directory) }
+        do { contents = try Storage.load(from: directory) }
         catch { writable = false; message = "\(error.localizedDescription)\n\nLock In won't save anything until this is fixed, so the file is left as it is." }
-        writer = StorageWriter(directory: self.directory, contents: contents ?? Storage.Contents())
+        writer = StorageWriter(directory: directory, contents: contents ?? Storage.Contents())
         if let contents {
             state = contents.preferences; journal = contents.journal
             if !contents.skipped.isEmpty {
                 message = "Some session files couldn't be read. They're left as they are and don't appear in History:\n" + contents.skipped.joined(separator: "\n")
             }
         }
-        do {
-            if let graph = try WorkGraphStorage.load(from: self.directory) { workGraph = graph }
-            else {
-                let current = journal.openSession?.todos ?? []
-                let review = journal.sessions.first { $0.id == journal.pendingReviewID }?.todos ?? []
-                workGraph = WorkGraph.migrating(journal.draft + current + review)
-                if !workGraph.nodes.isEmpty { try WorkGraphStorage.save(workGraph, in: self.directory) }
-            }
-        } catch {
-            workGraphWritable = false
-            workImportMessage = "Couldn't read or save work-graph.json: \(error.localizedDescription). The file is left unchanged."
-        }
+        loadWorkGraph()
         if state.profiles.isEmpty { state.profiles = [Profile()] }
         if !state.profiles.contains(where: { $0.id == state.selectedProfileID }) { state.selectedProfileID = state.profiles[0].id }
         sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
@@ -96,6 +96,19 @@ import LockInCore
         guard runTimer else { return }
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
+        }
+    }
+    /// Reads work-graph.json, or builds it from the journal's tasks when there isn't one yet.
+    private func loadWorkGraph() {
+        do {
+            if let graph = try WorkGraphStorage.load(from: directory) { workGraph = graph; return }
+            let current = journal.openSession?.todos ?? []
+            let review = journal.sessions.first { $0.id == journal.pendingReviewID }?.todos ?? []
+            workGraph = WorkGraph.migrating(journal.draft + current + review)
+            if !workGraph.nodes.isEmpty { try WorkGraphStorage.save(workGraph, in: directory) }
+        } catch {
+            workGraphWritable = false
+            workImportMessage = "Couldn't read or save work-graph.json: \(error.localizedDescription). The file is left unchanged."
         }
     }
     var profile: Profile { state.profiles.first { $0.id == state.selectedProfileID } ?? state.profiles[0] }
@@ -140,18 +153,18 @@ import LockInCore
     }
     func start() {
         guard !active, writable else { return }
-        now = Date()
+        now = clock()
         guard journal.pendingReviewID == nil else { showReview = true; return }
         let todos = journal.plannedTasks
         guard todos.allSatisfy(\.validLink), JournalState.isValidTarget(hours: journal.hours) else {
             message = "Use a work target between 0 and 24 hours, and full web links (https://…) for tasks."; return
         }
-        let log = WorkLog(todos: todos, targetSeconds: journal.hours * 3600, now: Date())
+        let log = WorkLog(todos: todos, targetSeconds: journal.hours * 3600, now: clock())
         guard commitJournal({ $0.sessions.append(log) }) else { return }
         state.session = FocusSession(profile: profile, locked: lockSession)
         showPlanner = false; runHook(.start); persist(); tick()
     }
-    /// The Focus menu command and the global shortcut: plan or start a session, or stop the running one.
+    /// The Focus menu command and the global shortcut: start a session, or ask why you're stopping the running one.
     func toggleFocus() { active ? stop() : start() }
     func stop() {
         guard !locked, workLog != nil else { return }
@@ -174,7 +187,7 @@ import LockInCore
         guard let sleep = sleepPause else { return }
         sleepPause = nil
         guard let log = workLog, log.intervals.last?.id == sleep.id else { return }
-        if sleep.phase == .break, log.breakBalance(at: Date()) >= 1 {
+        if sleep.phase == .break, log.breakBalance(at: clock()) >= 1 {
             changePhase(hook: .break) { log, now in log.transition(to: .break, at: now); return true }
         } else {
             resume()
@@ -192,8 +205,8 @@ import LockInCore
     }
     /// Brings the open session up to date, applies a phase change and, if it took effect, runs the hook and saves.
     @discardableResult private func changePhase(hook: HookEvent, _ change: (inout WorkLog, Date) -> Bool) -> Bool {
-        guard let index = activeLogIndex else { return false }
-        let now = Date()
+        guard let index = journal.openSessionIndex else { return false }
+        let now = clock()
         journal.sessions[index].advance(at: now)
         guard change(&journal.sessions[index], now) else { return false }
         if journal.sessions[index].phase?.isFocused != true { blocker.deactivate() }
@@ -208,7 +221,7 @@ import LockInCore
     }
     /// Marks a task in the running session done or not done.
     @discardableResult func setTaskCompleted(id: UUID, _ completed: Bool) -> Bool {
-        guard let index = activeLogIndex else { return false }
+        guard let index = journal.openSessionIndex else { return false }
         var todos = journal.sessions[index].todos
         guard let task = todos.firstIndex(where: { $0.id == id }) else { return false }
         todos[task].completed = completed
@@ -216,20 +229,20 @@ import LockInCore
     }
     /// Records an event on the running session, e.g. from `lockin event add`. Returns false if the text is blank.
     @discardableResult func addEvent(_ text: String) -> Bool {
-        guard let index = activeLogIndex else { return false }
+        guard let index = journal.openSessionIndex else { return false }
         var log = journal.sessions[index]
-        guard log.addEvent(text, at: Date()) else { return false }
+        guard log.addEvent(text, at: clock()) else { return false }
         return commitJournal { $0.sessions[index] = log }
     }
     /// Removes a task from the running session. Its record goes too: it won't appear in the review or journal.
     @discardableResult func deleteTask(id: UUID) -> Bool {
-        guard let index = activeLogIndex, journal.sessions[index].todos.contains(where: { $0.id == id }) else { return false }
+        guard let index = journal.openSessionIndex, journal.sessions[index].todos.contains(where: { $0.id == id }) else { return false }
         return replaceTasks(journal.sessions[index].todos.filter { $0.id != id }, inSession: index)
     }
     /// Applies an edit to the running session's tasks; `edit` returns the index of the changed task.
     /// The edit is rejected if that task is invalid.
     private func editTasks(_ edit: (inout [Todo]) -> Int?) -> Bool {
-        guard let index = activeLogIndex else { return false }
+        guard let index = journal.openSessionIndex else { return false }
         var todos = journal.sessions[index].todos
         guard let changed = edit(&todos), todos[changed].hasTitle else { return false }
         guard todos[changed].validLink else { message = Todo.linkRequirement; return false }
@@ -239,7 +252,8 @@ import LockInCore
     private func replaceTasks(_ todos: [Todo], inSession index: Int) -> Bool {
         commitJournal { $0.sessions[index].todos = todos }
     }
-    /// Used by Scripts/install-app.sh: pauses a working or break phase, remembers to resume after relaunch, then quits.
+    /// `lockin://update`, sent by Scripts/install.sh (and so by `lockin upgrade`): pauses a working or break phase,
+    /// remembers to resume after relaunch, then quits.
     /// A pause you started yourself is left alone. Hardcore Mode refuses, as it does for any quit.
     func quitForUpdate() {
         guard !locked else { message = "Hardcore Mode is active. Lock In can be updated when this session ends."; return }
@@ -254,16 +268,16 @@ import LockInCore
     }
     /// Ends a session that has reached its target, overtime included, and opens the review.
     func finishSession() {
-        guard let index = activeLogIndex else { return }
-        now = Date()
+        guard let index = journal.openSessionIndex else { return }
+        now = clock()
         journal.sessions[index].advance(at: now)
         guard journal.sessions[index].complete(at: now) else { return }
         conclude(journal.sessions[index])
     }
     /// Closes the open session before its target so a fresh one can be planned (e.g. the next morning).
     func endSession(reason: String) {
-        guard !locked, let index = activeLogIndex else { return }
-        now = Date()
+        guard !locked, let index = journal.openSessionIndex else { return }
+        now = clock()
         journal.sessions[index].advance(at: now)
         guard journal.sessions[index].endEarly(reason: reason, at: now) else { return }
         // The review is presented once the end-session sheet has dismissed (see MainView); swapping sheets in one update is unreliable.
@@ -274,10 +288,9 @@ import LockInCore
         journal.pendingReviewID = log.id; showReview = presentReview; showPause = false; showEndSession = false; page = .focus
         persist(); NSApp?.showMainWindow()
     }
-    var activeLogIndex: Int? { journal.openSessionIndex }
     func tick() {
-        now = Date()
-        if let index = activeLogIndex {
+        now = clock()
+        if let index = journal.openSessionIndex {
             let previous = journal.sessions[index].phase
             journal.sessions[index].advance(at: now)
             let phase = journal.sessions[index].phase
@@ -298,10 +311,10 @@ import LockInCore
     }
     /// Picks up the open session, or the review, where the last run left off.
     private func restoreSession(checkpoint: Date?) {
-        if let index = activeLogIndex {
+        if let index = journal.openSessionIndex {
             if state.session == nil { state.session = FocusSession(profile: profile, locked: false) }
             // Time while the app was not running earns no credit. Preserve it as an interruption.
-            if let checkpoint, Date().timeIntervalSince(checkpoint) > 15 {
+            if let checkpoint, clock().timeIntervalSince(checkpoint) > 15 {
                 journal.sessions[index].advance(at: checkpoint)
                 _ = journal.sessions[index].pause(reason: "App was not running; resumed from saved checkpoint", at: checkpoint)
             }
@@ -324,8 +337,8 @@ import LockInCore
     @discardableResult func persist() -> Bool {
         guard writable else { return false }
         do {
-            try writer.write(preferences: state, journal: journal, checkpoint: Date())
-            lastCheckpoint = Date()
+            try writer.write(preferences: state, journal: journal, checkpoint: clock())
+            lastCheckpoint = clock()
         } catch { message = "Could not save to ~/.lockin: \(error.localizedDescription)"; return false }
         return true
     }

@@ -3,8 +3,7 @@ import XCTest
 
 final class WorkStatsTests: XCTestCase {
     var calendar: Calendar = {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "UTC")!
+        var calendar = Calendar.utc
         calendar.firstWeekday = 2
         return calendar
     }()

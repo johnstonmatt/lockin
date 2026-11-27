@@ -39,8 +39,9 @@ struct WorkEdgeRoute {
             }
         }
         func score(_ points: [CGPoint]) -> CGFloat {
-            var cost: CGFloat = points.first == start ? 0 : 24
-                + abs(points[0].y - source.midY) + abs(points[points.count - 1].y - target.midY)
+            // Leaving from the bottom-centre port is free; a side port pays 24 plus how far its ends sit from the cards' mid-heights.
+            var cost: CGFloat = points.first == start
+                ? 0 : (24 + abs(points[0].y - source.midY) + abs(points[points.count - 1].y - target.midY))
             if let endpoint = points.last {
                 for route in occupied {
                     if let other = route.last, abs(endpoint.x - other.x) < 64, abs(endpoint.y - other.y) < 14 {

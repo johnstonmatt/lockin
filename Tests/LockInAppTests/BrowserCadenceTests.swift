@@ -26,3 +26,14 @@ final class BrowserCadenceTests: XCTestCase {
         XCTAssertEqual(cadence.next(at: 0.06, browserIsFrontmost: false), true)
     }
 }
+
+final class BlockerMessageTests: XCTestCase {
+    func testPermissionMessagesNameTheBrowser() {
+        for (id, name) in [("com.brave.Browser", "Brave"), ("com.microsoft.edgemac", "Edge"),
+                           ("com.vivaldi.Vivaldi", "Vivaldi"), ("company.thebrowser.Browser", "Arc")] {
+            XCTAssertEqual(Blocker.permissionMessage(id, code: -1744), "\(name): permission not requested. Click Enable browser blocking.")
+            XCTAssertTrue(Blocker.permissionMessage(id, code: -1743).contains("Enable Lock In → \(name) in System Settings"))
+        }
+        XCTAssertEqual(Blocker.permissionMessage("org.example.Unknown", code: -1), "org.example.Unknown: browser access failed (-1).")
+    }
+}

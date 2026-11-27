@@ -10,6 +10,26 @@ struct WorkGraphLayout {
     }
     static let cardSize = CGSize(width: 230, height: 120)
     static let regionHeaderHeight: CGFloat = 92
+    /// Distances in points.
+    private enum Spacing {
+        /// Around the canvas, and the top of anything not placed below something else.
+        static let margin: CGFloat = 20
+        /// From a region header to its contents.
+        static let headerGap: CGFloat = 16
+        /// Between cards stacked in one column.
+        static let stackGap: CGFloat = 16
+        /// Above a card below a dependency, so the connector has room to turn.
+        static let dependencyClearance: CGFloat = 44
+        /// Above a sibling block ordered after another; more for each level the source is nested.
+        static let laneClearance: CGFloat = 28
+        static let nestedLaneClearance: CGFloat = 24
+        /// A region's contents, inset from its sides and above its bottom edge.
+        static let regionInset: CGFloat = 20
+        static let regionBottom: CGFloat = 24
+        static let minRegionWidth: CGFloat = 270
+        /// Between disconnected parts of the graph.
+        static let componentGap: CGFloat = 40
+    }
     var positions: [String: CGPoint] = [:]
     var frames: [String: CGRect] = [:]
     var groups: [Group] = []
@@ -42,7 +62,7 @@ struct WorkGraphLayout {
 
     private init(graph: WorkGraph, filter: WorkFilter, collapsed: Set<String>, laneFactor: Double,
                  hierarchy: WorkHierarchy, dependencies sourceDependencies: [WorkEdge]) {
-        let nodes = graph.visibleNodes
+        let nodes = graph.nodes
         let parent = hierarchy.parent
         let shown = Set(nodes.filter {
             filter.includes($0)
@@ -111,17 +131,17 @@ struct WorkGraphLayout {
                 if sources.allSatisfy({ !WorkGraph.hasPath(from: id, to: $0, edges: edges) }) {
                     for source in sources {
                         let edge = WorkEdge(from: source, to: id, kind: .depends, source: .linear)
-                        var padding: CGFloat = 28
+                        var padding: CGFloat = Spacing.laneClearance
                         var ancestor = parent[source]
                         while let current = ancestor, owner[current] == owner[source] {
-                            padding += 24; ancestor = parent[current]
+                            padding += Spacing.nestedLaneClearance; ancestor = parent[current]
                         }
-                        clearance[edge.id] = max(44, padding)
+                        clearance[edge.id] = max(Spacing.dependencyClearance, padding)
                         edges.append(edge)
                     }
                 }
                 assigned[id] = lane; laneLast[lane] = id
-                let estimate = CGFloat(hierarchy.descendants(id).intersection(rendered).count + 1) * 164
+                let estimate = CGFloat(hierarchy.descendants(id).intersection(rendered).count + 1) * (Self.cardSize.height + Spacing.dependencyClearance)
                 finish[id] = max(earliest, laneEnds[lane]) + estimate
                 laneEnds[lane] = finish[id]!
             }
@@ -137,8 +157,8 @@ struct WorkGraphLayout {
             for id in ready.sorted() {
                 let top = (incoming[id] ?? []).compactMap { edge -> CGFloat? in
                     guard let sourceY = y[edge.from] else { return nil }
-                    return sourceY + height(edge.from) + (edge.kind == .contains ? 16 : clearance[edge.id] ?? 44)
-                }.max() ?? 20
+                    return sourceY + height(edge.from) + (edge.kind == .contains ? Spacing.headerGap : clearance[edge.id] ?? Spacing.dependencyClearance)
+                }.max() ?? Spacing.margin
                 y[id] = top
             }
             remaining.subtract(ready)
@@ -154,14 +174,14 @@ struct WorkGraphLayout {
         let insideOut = rendered.sorted { (depth[$0]!, $0) > (depth[$1]!, $1) }
         // Put headers immediately above their contents while preserving outgoing dependency clearance.
         for id in insideOut where regionIDs.contains(id) && !(children[id] ?? []).isEmpty {
-            let limits = (children[id] ?? []).compactMap { y[$0].map { $0 - Self.regionHeaderHeight - 16 } }
-                + edges.filter { $0.from == id && $0.kind == .depends }.compactMap { edge in y[edge.to].map { $0 - Self.regionHeaderHeight - (clearance[edge.id] ?? 44) } }
-            if let limit = limits.min() { y[id] = max(y[id] ?? 20, limit) }
+            let limits = (children[id] ?? []).compactMap { y[$0].map { $0 - Self.regionHeaderHeight - Spacing.headerGap } }
+                + edges.filter { $0.from == id && $0.kind == .depends }.compactMap { edge in y[edge.to].map { $0 - Self.regionHeaderHeight - (clearance[edge.id] ?? Spacing.dependencyClearance) } }
+            if let limit = limits.min() { y[id] = max(y[id] ?? Spacing.margin, limit) }
         }
         var bottom: [String: CGFloat] = [:]
         for id in insideOut {
             let contentBottom = (children[id] ?? []).compactMap { bottom[$0] }.max()
-            bottom[id] = max((y[id] ?? 20) + height(id), contentBottom.map { $0 + 24 } ?? 0)
+            bottom[id] = max((y[id] ?? Spacing.margin) + height(id), contentBottom.map { $0 + Spacing.regionBottom } ?? 0)
         }
         var previousX: [String: CGFloat] = [:]
         var best: [String: CGRect] = [:]
@@ -186,7 +206,7 @@ struct WorkGraphLayout {
                     return points.isEmpty ? nil : points.reduce(0, +) / CGFloat(points.count)
                 }
                 let ordered = members.sorted {
-                    if y[$0] != y[$1] { return (y[$0] ?? 20) < (y[$1] ?? 20) }
+                    if y[$0] != y[$1] { return (y[$0] ?? Spacing.margin) < (y[$1] ?? Spacing.margin) }
                     let lhs = desired($0, placed: [:]) ?? 0, rhs = desired($1, placed: [:]) ?? 0
                     return lhs == rhs ? $0 < $1 : lhs < rhs
                 }
@@ -196,7 +216,7 @@ struct WorkGraphLayout {
                 var placed: [String: CGFloat] = [:]
                 for id in ordered {
                     let target = desired(id, placed: placed)
-                    let available = columns.indices.filter { ends[$0] + 16 <= (y[id] ?? 20) }
+                    let available = columns.indices.filter { ends[$0] + Spacing.stackGap <= (y[id] ?? Spacing.margin) }
                     func center(_ index: Int) -> CGFloat {
                         columnWidths.prefix(index).reduce(0, +) + CGFloat(index) * WorkGeometry.columnGap + columnWidths[index] / 2
                     }
@@ -221,16 +241,16 @@ struct WorkGraphLayout {
             }
             for id in insideOut {
                 let contentWidth = pack(children[id] ?? [])
-                widths[id] = regionIDs.contains(id) ? max(270, contentWidth + 40) : Self.cardSize.width
+                widths[id] = regionIDs.contains(id) ? max(Spacing.minRegionWidth, contentWidth + 2 * Spacing.regionInset) : Self.cardSize.width
             }
             let width = pack(roots)
             var candidate: [String: CGRect] = [:]
             func place(_ id: String, origin: CGFloat) {
                 let left = origin + (offsets[id] ?? 0)
-                candidate[id] = CGRect(x: left, y: y[id] ?? 20, width: widths[id]!, height: height(id))
-                for child in children[id] ?? [] { place(child, origin: left + 20) }
+                candidate[id] = CGRect(x: left, y: y[id] ?? Spacing.margin, width: widths[id]!, height: height(id))
+                for child in children[id] ?? [] { place(child, origin: left + Spacing.regionInset) }
             }
-            for root in roots { place(root, origin: 20) }
+            for root in roots { place(root, origin: Spacing.margin) }
             let score = Self.score(candidate, edges: dependencies, width: width,
                                    height: bottom.values.max() ?? 0)
             if score < bestScore { best = candidate; bestScore = score }
@@ -248,7 +268,7 @@ struct WorkGraphLayout {
         packComponents(rendered, edges: edges, bounds: &bounds)
         groups.sort { ($0.depth, $0.id) < ($1.depth, $1.id) }
         positions = frames.mapValues { CGPoint(x: $0.midX, y: $0.midY) }
-        size = CGSize(width: max(400, (bounds.values.map(\.maxX).max() ?? 0) + 20), height: max(300, (bounds.values.map(\.maxY).max() ?? 0) + 20))
+        size = CGSize(width: max(400, (bounds.values.map(\.maxX).max() ?? 0) + Spacing.margin), height: max(300, (bounds.values.map(\.maxY).max() ?? 0) + Spacing.margin))
     }
 
     /// Places disconnected groups in rows, tallest first, so unrelated work doesn't stretch one axis.
@@ -274,12 +294,12 @@ struct WorkGraphLayout {
                 let lhs = $0.bounds.height, rhs = $1.bounds.height
                 return lhs == rhs ? $0.ids.sorted()[0] < $1.ids.sorted()[0] : lhs > rhs
             }
-            let area = components.reduce(CGFloat.zero) { $0 + ($1.bounds.width + 40) * ($1.bounds.height + 40) }
+            let area = components.reduce(CGFloat.zero) { $0 + ($1.bounds.width + Spacing.componentGap) * ($1.bounds.height + Spacing.componentGap) }
             let rowWidth = max(components.map { $0.bounds.width }.max() ?? 0, sqrt(area * 1.5))
-            var left: CGFloat = 20, top: CGFloat = 20, rowHeight: CGFloat = 0
+            var left = Spacing.margin, top = Spacing.margin, rowHeight: CGFloat = 0
             for component in components {
-                if left > 20 && left + component.bounds.width > rowWidth + 20 {
-                    left = 20; top += rowHeight + 40; rowHeight = 0
+                if left > Spacing.margin && left + component.bounds.width > rowWidth + Spacing.margin {
+                    left = Spacing.margin; top += rowHeight + Spacing.componentGap; rowHeight = 0
                 }
                 let dx = left - component.bounds.minX, dy = top - component.bounds.minY
                 for id in component.ids {
@@ -289,7 +309,7 @@ struct WorkGraphLayout {
                 for index in groups.indices where component.ids.contains(groups[index].id) {
                     groups[index].rect = groups[index].rect.offsetBy(dx: dx, dy: dy)
                 }
-                left += component.bounds.width + 40
+                left += component.bounds.width + Spacing.componentGap
                 rowHeight = max(rowHeight, component.bounds.height)
             }
         }

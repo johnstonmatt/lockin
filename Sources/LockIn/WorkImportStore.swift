@@ -18,7 +18,7 @@ enum WorkOperation {
 
 extension Store {
     @discardableResult
-    func importWork(_ input: String, addToSession: Bool = true, using importer: WorkImporter = WorkConnections.importer) throws -> WorkOperation {
+    func importWork(_ input: String, addToSession: Bool = true, using importer: WorkImporter? = nil) throws -> WorkOperation {
         guard !workImporting, workGraphWritable else { throw WorkImportError("Work can't be imported right now. Try again shortly.") }
         let targetSession = workLog?.id
         workImportMessage = "Loading work and dependencies…"
@@ -26,7 +26,7 @@ extension Store {
             guard let self else { throw CancellationError() }
             defer { self.workImportTask = nil }
             do {
-                let result = try await importer.fetch(input, preserving: Set(self.workGraph.imports.map(\.id)))
+                let result = try await (importer ?? self.importer).fetch(input, preserving: Set(self.workGraph.imports.map(\.id)))
                 let message = try self.applyWorkImport(result, addToSession: addToSession, targetSession: targetSession)
                 self.workImportMessage = message
                 return message
@@ -49,12 +49,10 @@ extension Store {
 
     @discardableResult
     func applyWorkImport(_ result: WorkImportResult, addToSession: Bool, targetSession: UUID?) throws -> String {
-        let addsToSession = addToSession && workLog?.id == targetSession && (workLog != nil || journal.pendingReviewID == nil)
+        let addsToSession = addToSession && workLog?.id == targetSession && canPlanWork
         var candidate = workGraph
         candidate.merge(result)
-        if addsToSession, let ancestor = candidate.selectedAncestor(of: result.snapshot.id, among: sessionWorkIDs) {
-            throw WorkImportError(parentEntryMessage(ancestor))
-        }
+        if addsToSession { try checkNotIncluded(result.snapshot.id, in: candidate) }
         try saveWorkGraph(candidate)
         if addsToSession {
             do { try saveWorkSelection(result.nodes.filter { $0.id == result.snapshot.id }) }

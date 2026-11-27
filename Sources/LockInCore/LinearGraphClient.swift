@@ -106,9 +106,7 @@ public struct LinearGraphClient: Sendable {
                 }
             }
         }
-        var seenEdges = Set<String>()
-        edges = edges.filter { seenEdges.insert($0.id).inserted }
         return WorkImportResult(nodes: nodes.values.sorted { $0.id < $1.id },
-            snapshot: WorkImport(id: root.node.id, url: root.url, nodeIDs: nodes.keys.sorted(), edges: edges))
+            snapshot: WorkImport(id: root.node.id, url: root.url, nodeIDs: nodes.keys.sorted(), edges: edges.uniqued(by: \.id)))
     }
 }
