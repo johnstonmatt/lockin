@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.3.0](https://github.com/johnstonmatt/lockin/compare/v1.2.4...v1.3.0) (2026-11-27)
+
+
+### Features
+
+* **cli:** import Linear issues and GitHub PRs with task add ([5451123](https://github.com/johnstonmatt/lockin/commit/54511234be847dae4e60b09069f108e88bfebfc1))
+
+
+### Bug Fixes
+
+* publish releases only after attaching the notarized app ([84b1427](https://github.com/johnstonmatt/lockin/commit/84b142799ac8df496fb72db9cb22a673f4aa2290))
+
+
+### Refactoring
+
+* unify task editing and updates across the app and CLI ([9f9794a](https://github.com/johnstonmatt/lockin/commit/9f9794a5ad3acdc86822a241d2ebf52884c6038c))
+
 ## [1.2.4](https://github.com/johnstonmatt/lockin/compare/v1.2.3...v1.2.4) (2026-11-27)
 
 
