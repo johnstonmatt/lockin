@@ -39,7 +39,10 @@ enum AppClient {
                 guard Date() < deadline else { throw UsageError("Lock In didn't respond after launching.") }
             }
         }
-        guard let reply = request(command, timeout: 5) else {
+        let importsWork: Bool
+        if case .addTask = command { importsWork = true } else { importsWork = false }
+        guard let reply = request(command, timeout: importsWork ? 300 : 5) else {
+            if importsWork { throw UsageError("Lock In hasn't finished adding work. Check the Work view before retrying; the import may still be running.") }
             throw UsageError("Lock In didn't respond. Builds older than the CLI ignore its commands: reinstall with ./install-app.")
         }
         return reply

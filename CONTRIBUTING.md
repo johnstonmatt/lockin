@@ -20,7 +20,7 @@ The code is split into three targets:
 | `LockIn` | SwiftUI window and menu bar, session orchestration, blocking, work views, connections, and updates. |
 | `LockInCLI` | The `lockin` command, journal reads, and requests to the running app. Bundled as `Contents/Helpers/lockin`. |
 
-`Store` coordinates sessions and persistence. `WorkGraphStore` coordinates work selection and graph storage. `WorkPresentation` supplies the graph, list, and details views; hierarchy, layout, and edge routing have separate implementations. `Blocker` serializes browser Apple events and hides applications. `RemoteControl` handles CLI requests through the same store methods used by the UI.
+`Store` coordinates sessions and persistence. `WorkInput` parses and validates work for both the UI and CLI. `WorkGraphStore` coordinates selection and storage; `WorkImportStore` owns import execution, cancellation, and results. Callers await the `WorkOperation` returned by add/import commands. `WorkPresentation` supplies the graph, list, and details views; hierarchy, layout, and edge routing have separate implementations. `Blocker` serializes browser Apple events and hides applications. `RemoteControl` handles CLI requests through the same store methods used by the UI.
 
 On-disk types live in `FileFormat`, separately from application models. Tests validate saved files against the JSON Schemas.
 

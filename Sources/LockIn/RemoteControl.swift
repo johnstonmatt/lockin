@@ -11,11 +11,11 @@ import LockInCore
         observer = DistributedNotificationCenter.default().addObserver(forName: channel.request, object: nil, queue: .main) { [weak self] note in
             guard let requestID = note.object as? String,
                   let command = RemoteChannel.decode(RemoteCommand.self, from: note.userInfo) else { return }
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 guard let store = self?.store else { return }
                 // Delivered immediately: NSApplication otherwise holds distributed notifications while the app is inactive.
                 DistributedNotificationCenter.default().postNotificationName(
-                    channel.reply, object: requestID, userInfo: RemoteChannel.encode(store.perform(command)), deliverImmediately: true)
+                    channel.reply, object: requestID, userInfo: RemoteChannel.encode(await store.perform(command)), deliverImmediately: true)
             }
         }
     }
@@ -24,7 +24,7 @@ import LockInCore
 extension Store {
     /// Runs a CLI command through the same methods as the UI, so the same rules apply (Hardcore Mode, pause reasons,
     /// earned breaks). The reply carries the app's own explanation when a command is refused.
-    func perform(_ command: RemoteCommand) -> RemoteReply {
+    func perform(_ command: RemoteCommand, using importer: WorkImporter = WorkConnections.importer) async -> RemoteReply {
         message = nil
         now = Date()
         func refused(_ fallback: String) -> RemoteReply { .failure(message ?? fallback) }
@@ -86,15 +86,11 @@ extension Store {
             return workLog == nil ? .success("Session ended. Review it in Lock In.") : refused("Lock In couldn't end the session.")
 
         case .addTask(let title, let link):
-            let todo = Todo().with(title: title, link: link)
-            guard todo.hasTitle else { return .failure("A task needs a title.") }
-            guard todo.validLink else { return .failure(Todo.linkRequirement) }
-            if workLog != nil {
-                return addTask(title: title, link: link) ? .success("Added “\(todo.title)” to this session.") : refused("Lock In couldn't add the task.")
-            }
-            if journal.pendingReviewID != nil { return reviewFirst }
-            guard commitJournal({ $0.draft = $0.plannedTasks + [todo] }) else { return refused("Lock In couldn't save the task.") }
-            return .success("Added “\(todo.title)” to the next session's plan.")
+            do {
+                let input = WorkInput(title: title.isEmpty ? nil : title, link: link)
+                let operation = try addWork(input, using: importer)
+                return .success(try await operation.value)
+            } catch { return .failure(error.localizedDescription) }
 
         case .updateTask(let id, let title, let link):
             let inSession = workLog != nil

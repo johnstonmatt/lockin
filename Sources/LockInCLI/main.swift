@@ -36,7 +36,7 @@ private func send(_ invocation: Invocation) throws -> Int32 {
     case .resume: command = .resume
     case .finish: command = .finish
     case .end(let reason): command = .end(reason: reason)
-    case .addTask(let text): command = .addTask(title: text.newTitle, link: text.link ?? "")
+    case .addTask(let text): command = .addTask(title: text.title ?? "", link: text.link ?? "")
     case .updateTask(let number, let text):
         command = .updateTask(id: try AppClient.snapshot().task(number: number).id, title: text.title, link: text.link)
     case .setTaskCompleted(let number, let completed):

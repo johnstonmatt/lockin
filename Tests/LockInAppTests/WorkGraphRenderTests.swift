@@ -28,11 +28,11 @@ final class WorkGraphRenderTests: XCTestCase {
             WorkEdge(from: "base", to: "api", kind: .depends, source: .stack),
             WorkEdge(from: "api", to: "ui", kind: .depends, source: .stack)
         ])
-        store.applyWorkImport(WorkImportResult(nodes: nodes, snapshot: snapshot), addToSession: true, targetSession: nil)
+        try store.applyWorkImport(WorkImportResult(nodes: nodes, snapshot: snapshot), addToSession: true, targetSession: nil)
         if ProcessInfo.processInfo.environment["LOCKIN_GRAPH_COMPLEX"] != nil {
             store.workGraph = WorkGraph()
             store.commitJournal { $0.setPlan([]) }
-            store.applyWorkImport(WorkGraphLayoutTests.fixture(), addToSession: true, targetSession: nil)
+            try store.applyWorkImport(WorkGraphLayoutTests.fixture(), addToSession: true, targetSession: nil)
         }
         if let source = ProcessInfo.processInfo.environment["LOCKIN_GRAPH_DATA"] {
             let sourceDirectory = URL(fileURLWithPath: source)
